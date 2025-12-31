@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart RPE Calculator (Mobile Optimized)</title>
+    <title>Smart RPE Calculator (Auto-Sort)</title>
     <style>
         :root {
             --primary: #3b82f6;
@@ -22,14 +22,14 @@
             font-family: -apple-system, system-ui, sans-serif;
             background-color: var(--bg);
             color: var(--text);
-            padding: 1rem; /* Reduced padding for mobile */
+            padding: 1rem;
             max-width: 1200px;
             margin: 0 auto;
         }
 
         h1, h2, h3 { margin-top: 0; }
         
-        /* --- LAYOUT GRID --- */
+        /* Layout Grid */
         .main-grid {
             display: grid;
             grid-template-columns: 280px 1fr;
@@ -37,38 +37,27 @@
             align-items: start;
         }
 
-        /* The container for the stats sidebar */
         .sidebar-wrapper {
             position: sticky;
             top: 20px;
             align-self: start;
         }
 
-        /* --- MOBILE OPTIMIZATION --- */
         @media (max-width: 900px) { 
             .main-grid { 
-                grid-template-columns: 1fr; /* Stack vertically */
+                grid-template-columns: 1fr; 
                 gap: 1rem;
             }
-            
-            /* Disable sticky on mobile so it doesn't cover content */
             .sidebar-wrapper {
                 position: static; 
             }
-
-            /* Make inputs sit side-by-side on mobile to save height */
             #statsContainer {
                 display: grid;
                 grid-template-columns: 1fr 1fr 1fr;
                 gap: 10px;
             }
-            
             .stat-row { margin-bottom: 0 !important; }
-            
-            /* Hide labels on very small screens if needed, or make smaller */
             .stat-label { font-size: 0.7rem !important; }
-            
-            h1 { font-size: 1.5rem; }
         }
 
         /* Cards & Upload */
@@ -168,28 +157,22 @@
 
 <div class="card" id="uploadCard">
     <h2>1. Upload Program Files</h2>
-    
     <div class="upload-area" id="dropZone" onclick="triggerUpload()">
         <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">📂 Click or Drag CSVs Here</p>
         <p style="color: var(--text-muted);">Supports single or multiple files (e.g., Monday.csv)</p>
         <input type="file" id="fileInput" accept=".csv" multiple style="display: none">
     </div>
-
     <button class="btn btn-outline" style="width: 100%; margin-top:1rem;" onclick="downloadSample()">Download Sample CSVs</button>
 </div>
 
 <div class="main-grid hidden" id="mainInterface">
-    
     <div class="sidebar-wrapper">
         <div class="card" style="padding: 1rem;">
             <h2 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Your Maxes</h2>
-            <div id="statsContainer">
-                </div>
+            <div id="statsContainer"></div>
         </div>
     </div>
-
-    <div id="workoutsContainer">
-        </div>
+    <div id="workoutsContainer"></div>
 </div>
 
 <script>
@@ -214,6 +197,36 @@
         document.getElementById('backBtn').classList.add('hidden');
         document.getElementById('fileInput').value = ''; 
         document.getElementById('workoutsContainer').innerHTML = '';
+    }
+
+    // --- SORTING UTILS ---
+    const dayMap = {
+        'monday': 1, 'mon': 1,
+        'tuesday': 2, 'tue': 2, 'tues': 2,
+        'wednesday': 3, 'wed': 3,
+        'thursday': 4, 'thu': 4, 'thurs': 4,
+        'friday': 5, 'fri': 5,
+        'saturday': 6, 'sat': 6,
+        'sunday': 7, 'sun': 7
+    };
+
+    function sortFiles(results) {
+        return results.sort((a, b) => {
+            const dayA = dayMap[a.title.toLowerCase().trim()];
+            const dayB = dayMap[b.title.toLowerCase().trim()];
+
+            // Both are days: Sort chronologically
+            if (dayA && dayB) return dayA - dayB;
+            
+            // A is day, B is not: A comes first
+            if (dayA && !dayB) return -1;
+            
+            // B is day, A is not: B comes first
+            if (!dayA && dayB) return 1;
+            
+            // Neither are days: Sort alphabetically
+            return a.title.localeCompare(b.title);
+        });
     }
 
     // --- UPLOAD HANDLING ---
@@ -248,21 +261,24 @@
                 return;
             }
 
-            // 1. Build Stats Input (Hardcoded for SBD)
+            // 1. Stats
             buildStatsInputs();
 
-            // 2. Build Sections
+            // 2. Sort Logic applied here
+            const sortedResults = sortFiles(validResults);
+
+            // 3. Build Sections
             const container = document.getElementById('workoutsContainer');
             container.innerHTML = ''; 
-            validResults.sort((a, b) => a.title.localeCompare(b.title));
-            validResults.forEach(res => {
+            
+            sortedResults.forEach(res => {
                 createWorkoutSection(res.title, res.data, container);
             });
 
-            // 3. Trigger initial calculation for any existing saved maxes
+            // 4. Init
             triggerInitialCalculation();
 
-            // 4. Show UI
+            // 5. Show UI
             document.getElementById('uploadCard').classList.add('hidden');
             document.getElementById('mainInterface').classList.remove('hidden');
             document.getElementById('backBtn').classList.remove('hidden');
@@ -280,13 +296,8 @@
                     const text = e.target.result;
                     const parsed = parseCSV(text);
                     const title = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-                    resolve({ 
-                        title: title, 
-                        data: parsed.data
-                    });
-                } catch (err) {
-                    resolve(null);
-                }
+                    resolve({ title: title, data: parsed.data });
+                } catch (err) { resolve(null); }
             };
             reader.onerror = () => resolve(null);
             reader.readAsText(file);
@@ -328,14 +339,10 @@
     }
 
     // --- UI BUILDERS ---
-    
-    // MODIFIED: Only builds Squat, Bench, Deadlift
     function buildStatsInputs() {
         const container = document.getElementById('statsContainer');
         container.innerHTML = '';
-        
         const mainLifts = ['Squat', 'Bench Press', 'Deadlift'];
-
         mainLifts.forEach(lift => {
             const savedMax = localStorage.getItem('1rm_' + lift) || '';
             const div = document.createElement('div');
@@ -434,9 +441,7 @@
         parentContainer.appendChild(section);
     }
 
-    // --- SHARED LOGIC ---
-    
-    // Helper to calculate initial values on load
+    // --- CALC LOGIC ---
     function triggerInitialCalculation() {
         ['Squat', 'Bench Press', 'Deadlift'].forEach(lift => {
             const val = localStorage.getItem('1rm_' + lift);
@@ -446,17 +451,12 @@
 
     window.updateMax = function(baseLiftName, weight) {
         localStorage.setItem('1rm_' + baseLiftName, weight);
-        
-        // Normalize for matching
         const searchKey = baseLiftName.toLowerCase().replace(" press", ""); 
 
         const allRows = document.querySelectorAll(`tr.main-row`);
-        
         allRows.forEach(row => {
             const rowExercise = row.getAttribute('data-exercise').toLowerCase();
-            
             if (rowExercise.includes(searchKey)) {
-                
                 const pct = parseFloat(row.getAttribute('data-pct'));
                 const cell = row.querySelector('.load-cell');
                 let calculatedLoad = 0;

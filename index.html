@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart RPE Calculator (SBD Mode)</title>
+    <title>Smart RPE Calculator (Mobile Optimized)</title>
     <style>
         :root {
             --primary: #3b82f6;
@@ -22,21 +22,54 @@
             font-family: -apple-system, system-ui, sans-serif;
             background-color: var(--bg);
             color: var(--text);
-            padding: 2rem;
+            padding: 1rem; /* Reduced padding for mobile */
             max-width: 1200px;
             margin: 0 auto;
         }
 
         h1, h2, h3 { margin-top: 0; }
         
-        /* Layout Grid */
+        /* --- LAYOUT GRID --- */
         .main-grid {
             display: grid;
             grid-template-columns: 280px 1fr;
             gap: 2rem;
             align-items: start;
         }
-        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+        /* The container for the stats sidebar */
+        .sidebar-wrapper {
+            position: sticky;
+            top: 20px;
+            align-self: start;
+        }
+
+        /* --- MOBILE OPTIMIZATION --- */
+        @media (max-width: 900px) { 
+            .main-grid { 
+                grid-template-columns: 1fr; /* Stack vertically */
+                gap: 1rem;
+            }
+            
+            /* Disable sticky on mobile so it doesn't cover content */
+            .sidebar-wrapper {
+                position: static; 
+            }
+
+            /* Make inputs sit side-by-side on mobile to save height */
+            #statsContainer {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 10px;
+            }
+            
+            .stat-row { margin-bottom: 0 !important; }
+            
+            /* Hide labels on very small screens if needed, or make smaller */
+            .stat-label { font-size: 0.7rem !important; }
+            
+            h1 { font-size: 1.5rem; }
+        }
 
         /* Cards & Upload */
         .card {
@@ -76,7 +109,7 @@
 
         /* Workout Section Styling */
         .workout-section {
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -84,7 +117,7 @@
         }
         .workout-header {
             background: rgba(0,0,0,0.2);
-            padding: 1rem 1.5rem;
+            padding: 1rem;
             border-bottom: 1px solid var(--border);
             font-size: 1.25rem;
             font-weight: 700;
@@ -95,7 +128,7 @@
         /* Table Styles */
         table { width: 100%; border-collapse: separate; border-spacing: 0; }
         th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
-        th { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); background: var(--card-bg); }
+        th { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); background: var(--card-bg); white-space: nowrap;}
         
         .main-row { background: var(--card-bg); }
         .backoff-row { background-color: var(--backoff-bg); }
@@ -106,7 +139,7 @@
 
         /* Inline Inputs */
         .drop-input-group { display: flex; align-items: center; gap: 8px; }
-        .tiny-input { width: 60px !important; padding: 0.4rem !important; text-align: center; }
+        .tiny-input { width: 50px !important; padding: 0.4rem !important; text-align: center; }
         .rpe-select { width: 70px !important; display: inline-block; margin-left: 5px; }
 
         .load-cell { font-size: 1.25rem; font-weight: 800; color: var(--highlight); }
@@ -130,7 +163,7 @@
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
     <h1>Smart RPE Calculator</h1>
-    <button id="backBtn" class="btn btn-outline hidden" onclick="goBack()">← Upload New Files</button>
+    <button id="backBtn" class="btn btn-outline hidden" onclick="goBack()">← Re-Upload</button>
 </div>
 
 <div class="card" id="uploadCard">
@@ -147,10 +180,9 @@
 
 <div class="main-grid hidden" id="mainInterface">
     
-    <div style="position: sticky; top: 20px; align-self: start;">
-        <div class="card">
-            <h2>2. Your Maxes</h2>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">Variations will use these maxes automatically.</p>
+    <div class="sidebar-wrapper">
+        <div class="card" style="padding: 1rem;">
+            <h2 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Your Maxes</h2>
             <div id="statsContainer">
                 </div>
         </div>
@@ -309,7 +341,7 @@
             const div = document.createElement('div');
             div.className = 'stat-row';
             div.innerHTML = `
-                <label class="stat-label">${lift} 1RM</label>
+                <label class="stat-label">${lift}</label>
                 <input type="number" id="stat_${lift}" value="${savedMax}" placeholder="0" oninput="updateMax('${lift}', this.value)">
             `;
             container.appendChild(div);
@@ -332,9 +364,9 @@
         table.innerHTML = `
             <thead>
                 <tr>
-                    <th style="width: 30%">Exercise</th>
+                    <th style="width: 35%">Exercise</th>
                     <th style="width: 40%">Scheme</th>
-                    <th style="width: 30%">Load</th>
+                    <th style="width: 25%">Load</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -387,7 +419,7 @@
                         <span>${row.sets} x ${row.reps || '?'}</span>
                         ${rpeOptions}
                     </div>
-                    <button class="btn btn-sm" onclick="addManualBackoff(this)">+ Backoff Set</button>
+                    <button class="btn btn-sm" onclick="addManualBackoff(this)">+ Backoff</button>
                 </td>
                 <td>
                     <div class="load-cell">-</div>
@@ -412,20 +444,17 @@
         });
     }
 
-    // MODIFIED: Intelligent matching
-    // If you update "Squat", it finds any row with "squat" in the name
     window.updateMax = function(baseLiftName, weight) {
         localStorage.setItem('1rm_' + baseLiftName, weight);
         
-        // Normalize for matching (e.g. "Bench Press" -> "bench")
-        const searchKey = baseLiftName.toLowerCase().replace(" press", ""); // "Squat"->"squat", "Bench Press"->"bench", "Deadlift"->"deadlift"
+        // Normalize for matching
+        const searchKey = baseLiftName.toLowerCase().replace(" press", ""); 
 
         const allRows = document.querySelectorAll(`tr.main-row`);
         
         allRows.forEach(row => {
             const rowExercise = row.getAttribute('data-exercise').toLowerCase();
             
-            // Check if this row belongs to the category being updated
             if (rowExercise.includes(searchKey)) {
                 
                 const pct = parseFloat(row.getAttribute('data-pct'));
@@ -445,7 +474,6 @@
         });
     }
 
-    // This handles manual RPE changes on specific rows
     window.updateRowRPE = function(selectElem) {
         const row = selectElem.closest('tr');
         const newRPE = selectElem.value;
@@ -457,7 +485,6 @@
             row.setAttribute('data-pct', newPct);
         }
 
-        // Determine which Max to grab based on exercise name
         let liftKey = null;
         if(exercise.includes('squat')) liftKey = 'Squat';
         else if(exercise.includes('bench')) liftKey = 'Bench Press';
@@ -465,16 +492,14 @@
 
         if(liftKey) {
             const currentMax = localStorage.getItem('1rm_' + liftKey);
-            // Re-trigger update logic just for this lift type to refresh this row
             if(currentMax) updateMax(liftKey, currentMax);
         }
     }
 
-    // ... (Rest of backoff logic remains same) ...
     function createBackoffRow(mainRow, dropVal, sets, reps, title) {
         const newRow = document.createElement('tr');
         newRow.className = 'backoff-row';
-        const label = title ? title : "Backoff Set";
+        const label = title ? title : "Backoff";
         const setsReps = (sets && reps) ? `<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">${sets} x ${reps}</div>` : "";
 
         newRow.innerHTML = `

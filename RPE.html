@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart RPE Calculator + Backoffs</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --backoff-bg: #162032; /* Slightly darker for backoff rows */
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --input-bg: #0f172a;
+            --highlight: #22c55e;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            padding: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h1, h2, h3 { margin-top: 0; }
+        
+        /* Layout Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+        /* Cards & Upload */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+        .upload-area {
+            border: 2px dashed var(--border);
+            padding: 2rem;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .upload-area:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
+
+        /* Inputs */
+        .stat-row { margin-bottom: 1rem; }
+        .stat-label {
+            display: block; font-size: 0.85rem; color: var(--text-muted);
+            margin-bottom: 0.25rem; text-transform: uppercase; font-weight: 700;
+        }
+        input[type="number"] {
+            background: var(--input-bg); border: 1px solid var(--border); color: white;
+            padding: 0.75rem; width: 100%; border-radius: 6px; font-size: 1rem; box-sizing: border-box;
+        }
+        input[type="number"]:focus { border-color: var(--primary); outline: none; }
+
+        /* Table Styles */
+        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); position: sticky; top:0; background: var(--card-bg); }
+        
+        .main-row { background: var(--card-bg); }
+        
+        /* Backoff Row Specifics */
+        .backoff-row {
+            background-color: var(--backoff-bg);
+        }
+        .backoff-row td {
+            border-bottom: 1px solid var(--border);
+            padding-top: 0.75rem; padding-bottom: 0.75rem;
+        }
+        .backoff-label {
+            display: flex; align-items: center; color: var(--text-muted); font-size: 0.9rem;
+        }
+        .backoff-label::before { content: "↳"; margin-right: 8px; font-size: 1.2rem; }
+
+        /* Drop Input */
+        .drop-input-group { display: flex; align-items: center; gap: 8px; }
+        .drop-input { width: 60px !important; padding: 0.4rem !important; text-align: center; }
+
+        .load-cell { font-size: 1.25rem; font-weight: 800; color: var(--highlight); }
+        
+        /* Buttons */
+        .btn {
+            background: var(--primary); color: white; padding: 0.5rem 1rem;
+            border-radius: 6px; border: none; cursor: pointer; font-weight: 600;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 8px; background: var(--border);
+        }
+        .btn-sm:hover { background: var(--primary); }
+        .btn-del { background: transparent; color: var(--text-muted); font-size: 1.2rem; padding: 0 0.5rem; }
+        .btn-del:hover { color: var(--danger); }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<h1>Smart RPE Calculator + Backoffs</h1>
+
+<div class="card" id="uploadCard">
+    <h2>1. Upload Program</h2>
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <p>📂 Click to upload CSV</p>
+        <span style="font-size: 0.8rem; color: #94a3b8;">(Exercise, Sets, Reps, RPE, Notes)</span>
+        <input type="file" id="fileInput" accept=".csv" style="display: none">
+    </div>
+    <button class="btn" style="background: transparent; border: 1px solid var(--border); width: 100%; margin-top:1rem;" onclick="downloadSample()">Download Sample CSV</button>
+</div>
+
+<div class="main-grid hidden" id="mainInterface">
+    
+    <div style="position: sticky; top: 20px; align-self: start;">
+        <div class="card">
+            <h2>2. Your Maxes</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Enter 1RM once. Updates everything.</p>
+            <div id="statsContainer">
+                </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>3. Your Schedule</h2>
+        <div style="overflow-x: auto;">
+            <table id="programTable">
+                <thead>
+                    <tr>
+                        <th style="width: 30%">Exercise</th>
+                        <th style="width: 40%">Scheme</th>
+                        <th style="width: 30%">Load (kg/lbs)</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- RPE DATA ---
+    const rpeChart = {
+        1: {10: 1.0, 9.5: 0.978, 9: 0.955, 8.5: 0.939, 8: 0.922, 7.5: 0.907, 7: 0.892, 6.5: 0.878, 6: 0.864},
+        2: {10: 0.955, 9.5: 0.939, 9: 0.922, 8.5: 0.907, 8: 0.892, 7.5: 0.878, 7: 0.864, 6.5: 0.85, 6: 0.837},
+        3: {10: 0.922, 9.5: 0.907, 9: 0.892, 8.5: 0.878, 8: 0.864, 7.5: 0.85, 7: 0.837, 6.5: 0.824, 6: 0.811},
+        4: {10: 0.892, 9.5: 0.878, 9: 0.864, 8.5: 0.85, 8: 0.837, 7.5: 0.824, 7: 0.811, 6.5: 0.799, 6: 0.788},
+        5: {10: 0.864, 9.5: 0.85, 9: 0.837, 8.5: 0.824, 8: 0.811, 7.5: 0.799, 7: 0.788, 6.5: 0.776, 6: 0.766},
+        6: {10: 0.837, 9.5: 0.824, 9: 0.811, 8.5: 0.799, 8: 0.788, 7.5: 0.776, 7: 0.766, 6.5: 0.755, 6: 0.744},
+        8: {10: 0.788, 9.5: 0.776, 9: 0.766, 8.5: 0.755, 8: 0.744, 7.5: 0.734, 7: 0.724, 6.5: 0.714, 6: 0.705},
+        10: {10: 0.744, 9.5: 0.734, 9: 0.724, 8.5: 0.714, 8: 0.705, 7.5: 0.696, 7: 0.687, 6.5: 0.679, 6: 0.670},
+        12: {10: 0.705, 9.5: 0.696, 9: 0.687, 8.5: 0.679, 8: 0.670, 7.5: 0.662, 7: 0.654, 6.5: 0.646, 6: 0.639}
+    };
+
+    // --- CSV PARSING ---
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => processCSV(e.target.result);
+        reader.readAsText(file);
+    });
+
+    function processCSV(csvText) {
+        const lines = csvText.split('\n');
+        const exercises = new Set();
+        const programData = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].trim();
+            if (!row) continue;
+            const cols = row.split(',');
+            const exercise = (cols[0] || "Unknown").trim();
+            const sets = (cols[1] || "-").trim();
+            const reps = parseFloat(cols[2]);
+            const rpe = parseFloat(cols[3]);
+            const notes = cols[4] ? cols[4].trim() : "";
+
+            if (exercise && !isNaN(reps) && !isNaN(rpe)) {
+                exercises.add(exercise);
+                programData.push({ exercise, sets, reps, rpe, notes });
+            }
+        }
+
+        buildStatsInputs(exercises);
+        buildTable(programData);
+        
+        document.getElementById('uploadCard').classList.add('hidden');
+        document.getElementById('mainInterface').classList.remove('hidden');
+    }
+
+    // --- BUILDERS ---
+    function buildStatsInputs(exerciseSet) {
+        const container = document.getElementById('statsContainer');
+        container.innerHTML = '';
+        exerciseSet.forEach(exName => {
+            const savedMax = localStorage.getItem('1rm_' + exName) || '';
+            const div = document.createElement('div');
+            div.className = 'stat-row';
+            div.innerHTML = `
+                <label class="stat-label">${exName} 1RM</label>
+                <input type="number" id="stat_${exName}" value="${savedMax}" placeholder="0" oninput="updateMax('${exName}', this.value)">
+            `;
+            container.appendChild(div);
+            if(savedMax) setTimeout(() => updateMax(exName, savedMax), 50);
+        });
+    }
+
+    function buildTable(data) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        data.forEach((row, index) => {
+            const tr = document.createElement('tr');
+            tr.className = "main-row";
+            // Get RPE percentage if available, else 0
+            const pct = rpeChart[row.reps] && rpeChart[row.reps][row.rpe] ? rpeChart[row.reps][row.rpe] : 0;
+            
+            tr.setAttribute('data-exercise', row.exercise);
+            tr.setAttribute('data-pct', pct);
+
+            tr.innerHTML = `
+                <td>
+                    <div style="font-weight:bold">${row.exercise}</div>
+                    <div style="font-size:0.8rem; color: var(--text-muted)">${row.notes}</div>
+                </td>
+                <td>
+                    <div>${row.sets} x ${row.reps} @${row.rpe} <span style="font-size:0.75rem; color:var(--text-muted)">(${Math.round(pct*100)}%)</span></div>
+                    <button class="btn btn-sm" onclick="addBackoffRow(this)">+ Backoff Set</button>
+                </td>
+                <td>
+                    <div class="load-cell">-</div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // --- BACKOFF FUNCTIONALITY ---
+    window.addBackoffRow = function(btnElement) {
+        const mainRow = btnElement.closest('tr');
+        const newRow = document.createElement('tr');
+        newRow.className = 'backoff-row';
+        
+        newRow.innerHTML = `
+            <td>
+                <div class="backoff-label">Backoff Set</div>
+            </td>
+            <td>
+                 <div class="drop-input-group">
+                    <span style="font-size:0.9rem; color:var(--text-muted)">Drop:</span>
+                    <input type="number" class="drop-input" value="10" min="0" max="50" oninput="recalculateBackoff(this)">
+                    <span style="font-size:0.9rem; color:var(--text-muted)">%</span>
+                </div>
+            </td>
+            <td style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="load-cell backoff-load">-</div>
+                 <button class="btn btn-del" onclick="this.closest('tr').remove()">×</button>
+            </td>
+        `;
+        
+        // Insert after the main row OR after the last existing backoff row for this main row
+        let insertAfter = mainRow;
+        while(insertAfter.nextElementSibling && insertAfter.nextElementSibling.classList.contains('backoff-row')) {
+            insertAfter = insertAfter.nextElementSibling;
+        }
+        mainRow.parentNode.insertBefore(newRow, insertAfter.nextSibling);
+
+        // Trigger calculation for the new row immediately
+        recalculateBackoff(newRow.querySelector('.drop-input'));
+    }
+
+
+    // --- CALCULATION LOGIC ---
+
+    // 1. Main 1RM Input triggers this
+    window.updateMax = function(exerciseName, weight) {
+        localStorage.setItem('1rm_' + exerciseName, weight);
+        const mainRows = document.querySelectorAll(`tr.main-row[data-exercise="${exerciseName}"]`);
+        
+        mainRows.forEach(row => {
+            const pct = parseFloat(row.getAttribute('data-pct'));
+            const cell = row.querySelector('.load-cell');
+            let calculatedLoad = 0;
+
+            // Calculate Main Load
+            if (weight && pct > 0) {
+                // Round to nearest 2.5
+                calculatedLoad = Math.round((weight * pct) / 2.5) * 2.5;
+                cell.innerText = calculatedLoad;
+                cell.setAttribute('data-actual-load', calculatedLoad); // Store for backoffs to use
+            } else {
+                cell.innerText = "-";
+                cell.removeAttribute('data-actual-load');
+            }
+
+            // Update attached backoffs immediately
+            updateAttachedBackoffs(row, calculatedLoad);
+        });
+    }
+
+    // Helper to update backoff rows attached to a main row
+    function updateAttachedBackoffs(mainRow, mainLoad) {
+        let nextRow = mainRow.nextElementSibling;
+        // Iterate through sibling rows as long as they are backoff rows
+        while(nextRow && nextRow.classList.contains('backoff-row')) {
+            const dropInput = nextRow.querySelector('.drop-input');
+            calculateSingleBackoff(nextRow, mainLoad, dropInput.value);
+            nextRow = nextRow.nextElementSibling;
+        }
+    }
+
+    // 2. Backoff Percentage Input triggers this
+    window.recalculateBackoff = function(inputElement) {
+        const currentRow = inputElement.closest('tr');
+        // Find the parent "main-row" by looking backwards
+        let mainRow = currentRow.previousElementSibling;
+        while(mainRow && !mainRow.classList.contains('main-row')) {
+            mainRow = mainRow.previousElementSibling;
+        }
+
+        if(mainRow) {
+             // Get the load from the main row's data attribute (safest way)
+            const mainLoadAttr = mainRow.querySelector('.load-cell').getAttribute('data-actual-load');
+            const mainLoad = mainLoadAttr ? parseFloat(mainLoadAttr) : 0;
+            calculateSingleBackoff(currentRow, mainLoad, inputElement.value);
+        }
+    }
+
+    // Shared calculation formula for backoffs
+    function calculateSingleBackoff(rowElement, baseLoad, dropPercent) {
+        const cell = rowElement.querySelector('.backoff-load');
+        if (baseLoad > 0 && dropPercent >= 0) {
+            const decimalDrop = 1 - (dropPercent / 100);
+            const rawBackoff = baseLoad * decimalDrop;
+            // Round to nearest 2.5
+            const finalLoad = Math.round(rawBackoff / 2.5) * 2.5;
+            cell.innerText = finalLoad > 0 ? finalLoad : 0;
+        } else {
+            cell.innerText = "-";
+        }
+    }
+
+    // --- UTILS ---
+    window.downloadSample = function() {
+        const csvContent = "data:text/csv;charset=utf-8,Exercise,Sets,Reps,RPE,Notes\nSquat,1,1,8,Top Single\nSquat,3,5,8,Volume Work\nBench Press,1,1,8,Top Single\nBench Press,4,4,8,Volume Work";
+        const link = document.createElement("a");
+        link.href = encodeURI(csvContent);
+        link.download = "program_template_backoffs.csv";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>

@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart RPE Calculator (Auto-Sort)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart RPE Trainer Pro</title>
     <style>
         :root {
             --primary: #3b82f6;
@@ -16,6 +16,7 @@
             --input-bg: #0f172a;
             --highlight: #22c55e;
             --danger: #ef4444;
+            --warmup-color: #f59e0b;
         }
 
         body {
@@ -25,6 +26,7 @@
             padding: 1rem;
             max-width: 1200px;
             margin: 0 auto;
+            padding-bottom: 4rem; /* Space for scrolling */
         }
 
         h1, h2, h3 { margin-top: 0; }
@@ -36,130 +38,142 @@
             gap: 2rem;
             align-items: start;
         }
-
-        .sidebar-wrapper {
-            position: sticky;
-            top: 20px;
-            align-self: start;
-        }
+        .sidebar-wrapper { position: sticky; top: 20px; align-self: start; }
 
         @media (max-width: 900px) { 
-            .main-grid { 
-                grid-template-columns: 1fr; 
-                gap: 1rem;
-            }
-            .sidebar-wrapper {
-                position: static; 
-            }
-            #statsContainer {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                gap: 10px;
-            }
+            .main-grid { grid-template-columns: 1fr; gap: 1rem; }
+            .sidebar-wrapper { position: static; }
+            #statsContainer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
             .stat-row { margin-bottom: 0 !important; }
             .stat-label { font-size: 0.7rem !important; }
         }
 
-        /* Cards & Upload */
+        /* General UI */
         .card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+            padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
         }
         
         .upload-area {
-            border: 2px dashed var(--border);
-            padding: 3rem 2rem;
-            text-align: center;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: 0.2s;
-            position: relative;
+            border: 2px dashed var(--border); padding: 3rem 2rem; text-align: center;
+            border-radius: 8px; cursor: pointer; transition: 0.2s; position: relative;
         }
-        .upload-area:hover, .upload-area.dragover { 
-            border-color: var(--primary); 
-            background: rgba(59, 130, 246, 0.05); 
-        }
+        .upload-area:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
 
-        /* Inputs */
-        .stat-row { margin-bottom: 1rem; }
-        .stat-label {
-            display: block; font-size: 0.85rem; color: var(--text-muted);
-            margin-bottom: 0.25rem; text-transform: uppercase; font-weight: 700;
-        }
-        input[type="number"], select {
+        input[type="number"], select, input[type="text"] {
             background: var(--input-bg); border: 1px solid var(--border); color: white;
             padding: 0.5rem; width: 100%; border-radius: 6px; font-size: 1rem; box-sizing: border-box;
         }
-        input[type="number"]:focus, select:focus { border-color: var(--primary); outline: none; }
 
-        /* Workout Section Styling */
+        /* Navbar */
+        .navbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .nav-actions { display: flex; gap: 10px; }
+
+        /* Workout Section */
         .workout-section {
-            margin-bottom: 2rem;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
+            margin-bottom: 2rem; background: var(--card-bg);
+            border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
         }
         .workout-header {
-            background: rgba(0,0,0,0.2);
-            padding: 1rem;
-            border-bottom: 1px solid var(--border);
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--primary);
-            text-transform: capitalize;
+            background: rgba(0,0,0,0.2); padding: 1rem; border-bottom: 1px solid var(--border);
+            font-size: 1.25rem; font-weight: 700; color: var(--primary); text-transform: capitalize;
+            display: flex; justify-content: space-between; align-items: center;
         }
 
-        /* Table Styles */
+        /* Table */
         table { width: 100%; border-collapse: separate; border-spacing: 0; }
-        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th, td { padding: 0.75rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
         th { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); background: var(--card-bg); white-space: nowrap;}
         
-        .main-row { background: var(--card-bg); }
-        .backoff-row { background-color: var(--backoff-bg); }
+        .main-row { background: var(--card-bg); transition: opacity 0.3s; }
+        .backoff-row { background-color: var(--backoff-bg); transition: opacity 0.3s; }
+        .warmup-row { background-color: rgba(245, 158, 11, 0.05); font-style: italic; }
         
-        .backoff-row td { border-bottom: 1px solid var(--border); padding-top: 0.75rem; padding-bottom: 0.75rem; }
-        .backoff-label { display: flex; align-items: center; color: var(--text-muted); font-size: 0.9rem; }
-        .backoff-label::before { content: "↳"; margin-right: 8px; font-size: 1.2rem; }
+        .completed { opacity: 0.4; filter: grayscale(1); }
 
-        /* Inline Inputs */
-        .drop-input-group { display: flex; align-items: center; gap: 8px; }
-        .tiny-input { width: 50px !important; padding: 0.4rem !important; text-align: center; }
-        .rpe-select { width: 70px !important; display: inline-block; margin-left: 5px; }
+        /* Special Table Elements */
+        .backoff-label::before { content: "↳"; margin-right: 6px; font-size: 1.1rem; }
+        .warmup-label::before { content: "🔥"; margin-right: 6px; }
 
-        .load-cell { font-size: 1.25rem; font-weight: 800; color: var(--highlight); }
-        
-        /* Buttons */
-        .btn {
-            background: var(--primary); color: white; padding: 0.5rem 1rem;
-            border-radius: 6px; border: none; cursor: pointer; font-weight: 600;
+        .load-cell { 
+            font-size: 1.2rem; font-weight: 800; color: var(--highlight); 
+            cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: var(--text-muted);
         }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .btn-outline:hover { background: var(--border); }
-        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 8px; background: var(--border); }
-        .btn-sm:hover { background: var(--primary); }
-        .btn-del { background: transparent; color: var(--text-muted); font-size: 1.2rem; padding: 0 0.5rem; }
-        .btn-del:hover { color: var(--danger); }
+        
+        /* Inputs inside table */
+        .tiny-input { width: 50px !important; padding: 0.3rem !important; text-align: center; }
+        .actual-input { 
+            width: 60px !important; padding: 0.3rem !important; text-align: center; 
+            border: 1px solid var(--border); color: var(--highlight); font-weight: bold;
+        }
 
-        .hidden { display: none; }
+        /* Checkbox */
+        .check-circle {
+            width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--text-muted);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+        }
+        .check-circle.checked { background: var(--highlight); border-color: var(--highlight); }
+        .check-circle.checked::after { content: "✓"; color: white; font-weight: bold; font-size: 14px; }
+
+        /* Buttons */
+        .btn { background: var(--primary); color: white; padding: 0.5rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.7rem; margin-top: 6px; background: var(--border); }
+        .btn-warmup { background: transparent; border: 1px solid var(--warmup-color); color: var(--warmup-color); }
+        .btn-warmup:hover { background: var(--warmup-color); color: white; }
+        .btn-finish { width: 100%; padding: 1rem; font-size: 1.1rem; background: var(--highlight); margin-top: 1rem; }
+
+        /* MODALS */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); z-index: 100; display: none;
+            justify-content: center; align-items: center; padding: 1rem;
+        }
+        .modal-content {
+            background: var(--card-bg); padding: 2rem; border-radius: 12px;
+            max-width: 500px; width: 100%; max-height: 80vh; overflow-y: auto;
+            position: relative;
+        }
+        
+        /* Plate Visuals */
+        .plate-container { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 1rem; flex-wrap: wrap;}
+        .plate {
+            height: 60px; width: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2);
+            display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold;
+        }
+        .plate-25 { background: #ef4444; height: 80px; } /* Red */
+        .plate-20 { background: #3b82f6; height: 75px; } /* Blue */
+        .plate-15 { background: #eab308; height: 70px; } /* Yellow */
+        .plate-10 { background: #22c55e; height: 60px; } /* Green */
+        .plate-5 { background: #f8fafc; height: 50px; } /* White */
+        .plate-2-5 { background: #000; height: 45px; border: 1px solid #666; color: white;}
+        .plate-1-25 { background: #94a3b8; height: 40px; } /* Silver */
+        .barbell { width: 10px; height: 90px; background: #94a3b8; margin: 0 10px; }
+
+        .history-item { 
+            background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; 
+            border-left: 4px solid var(--primary);
+        }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-    <h1>Smart RPE Calculator</h1>
-    <button id="backBtn" class="btn btn-outline hidden" onclick="goBack()">← Re-Upload</button>
+<div class="navbar">
+    <h1>Smart RPE Pro</h1>
+    <div class="nav-actions">
+        <button class="btn btn-outline" onclick="showHistory()">History</button>
+        <button id="backBtn" class="btn btn-outline hidden" onclick="goBack()">New</button>
+    </div>
 </div>
 
 <div class="card" id="uploadCard">
     <h2>1. Upload Program Files</h2>
     <div class="upload-area" id="dropZone" onclick="triggerUpload()">
         <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">📂 Click or Drag CSVs Here</p>
-        <p style="color: var(--text-muted);">Supports single or multiple files (e.g., Monday.csv)</p>
+        <p style="color: var(--text-muted);">Supports multiple files (Monday.csv, Tuesday.csv)</p>
         <input type="file" id="fileInput" accept=".csv" multiple style="display: none">
     </div>
     <button class="btn btn-outline" style="width: 100%; margin-top:1rem;" onclick="downloadSample()">Download Sample CSVs</button>
@@ -175,8 +189,29 @@
     <div id="workoutsContainer"></div>
 </div>
 
+<div id="plateModal" class="modal-overlay" onclick="closeModal('plateModal')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <h2 style="text-align: center;">Load the Bar</h2>
+        <div style="text-align: center; font-size: 3rem; font-weight: 800; color: var(--highlight);" id="modalWeightDisplay">0</div>
+        <p style="text-align: center; color: var(--text-muted);">(Per Side)</p>
+        
+        <div class="plate-container" id="plateVisuals">
+            </div>
+        <div style="margin-top: 1rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">Assuming 20kg Bar</div>
+        <button class="btn" style="width: 100%; margin-top: 2rem;" onclick="closeModal('plateModal')">Close</button>
+    </div>
+</div>
+
+<div id="historyModal" class="modal-overlay" onclick="closeModal('historyModal')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <h2>Session History</h2>
+        <div id="historyList"></div>
+        <button class="btn" style="width: 100%; margin-top: 1rem;" onclick="closeModal('historyModal')">Close</button>
+    </div>
+</div>
+
 <script>
-    // --- RPE DATA ---
+    // --- CONFIG ---
     const rpeChart = {
         1: {10: 1.0, 9.5: 0.978, 9: 0.955, 8.5: 0.939, 8: 0.922, 7.5: 0.907, 7: 0.892, 6.5: 0.878, 6: 0.864},
         2: {10: 0.955, 9.5: 0.939, 9: 0.922, 8.5: 0.907, 8: 0.892, 7.5: 0.878, 7: 0.864, 6.5: 0.85, 6: 0.837},
@@ -184,397 +219,420 @@
         4: {10: 0.892, 9.5: 0.878, 9: 0.864, 8.5: 0.85, 8: 0.837, 7.5: 0.824, 7: 0.811, 6.5: 0.799, 6: 0.788},
         5: {10: 0.864, 9.5: 0.85, 9: 0.837, 8.5: 0.824, 8: 0.811, 7.5: 0.799, 7: 0.788, 6.5: 0.776, 6: 0.766},
         6: {10: 0.837, 9.5: 0.824, 9: 0.811, 8.5: 0.799, 8: 0.788, 7.5: 0.776, 7: 0.766, 6.5: 0.755, 6: 0.744},
-        7: {10: 0.811, 9.5: 0.799, 9: 0.788, 8.5: 0.776, 8: 0.766, 7.5: 0.755, 7: 0.744, 6.5: 0.734, 6: 0.724},
         8: {10: 0.788, 9.5: 0.776, 9: 0.766, 8.5: 0.755, 8: 0.744, 7.5: 0.734, 7: 0.724, 6.5: 0.714, 6: 0.705},
-        9: {10: 0.766, 9.5: 0.755, 9: 0.744, 8.5: 0.734, 8: 0.724, 7.5: 0.714, 7: 0.705, 6.5: 0.696, 6: 0.687},
         10: {10: 0.744, 9.5: 0.734, 9: 0.724, 8.5: 0.714, 8: 0.705, 7.5: 0.696, 7: 0.687, 6.5: 0.679, 6: 0.670},
         12: {10: 0.705, 9.5: 0.696, 9: 0.687, 8.5: 0.679, 8: 0.670, 7.5: 0.662, 7: 0.654, 6.5: 0.646, 6: 0.639}
     };
+    
+    const dayMap = {'monday':1,'tuesday':2,'wednesday':3,'thursday':4,'friday':5,'saturday':6,'sunday':7};
 
-    function goBack() {
-        document.getElementById('mainInterface').classList.add('hidden');
-        document.getElementById('uploadCard').classList.remove('hidden');
-        document.getElementById('backBtn').classList.add('hidden');
-        document.getElementById('fileInput').value = ''; 
-        document.getElementById('workoutsContainer').innerHTML = '';
-    }
-
-    // --- SORTING UTILS ---
-    const dayMap = {
-        'monday': 1, 'mon': 1,
-        'tuesday': 2, 'tue': 2, 'tues': 2,
-        'wednesday': 3, 'wed': 3,
-        'thursday': 4, 'thu': 4, 'thurs': 4,
-        'friday': 5, 'fri': 5,
-        'saturday': 6, 'sat': 6,
-        'sunday': 7, 'sun': 7
-    };
-
-    function sortFiles(results) {
-        return results.sort((a, b) => {
-            const dayA = dayMap[a.title.toLowerCase().trim()];
-            const dayB = dayMap[b.title.toLowerCase().trim()];
-
-            // Both are days: Sort chronologically
-            if (dayA && dayB) return dayA - dayB;
-            
-            // A is day, B is not: A comes first
-            if (dayA && !dayB) return -1;
-            
-            // B is day, A is not: B comes first
-            if (!dayA && dayB) return 1;
-            
-            // Neither are days: Sort alphabetically
-            return a.title.localeCompare(b.title);
-        });
-    }
-
-    // --- UPLOAD HANDLING ---
-    function triggerUpload() {
-        document.getElementById('fileInput').value = null; 
-        document.getElementById('fileInput').click();
-    }
+    // --- UPLOAD & INIT ---
+    function triggerUpload() { document.getElementById('fileInput').click(); }
+    
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        if (e.target.files.length > 0) handleFiles(Array.from(e.target.files));
+    });
 
     const dropZone = document.getElementById('dropZone');
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    
     dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            handleFiles(Array.from(e.dataTransfer.files));
-        }
-    });
-
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-        if (e.target.files && e.target.files.length > 0) {
-            handleFiles(Array.from(e.target.files));
-        }
+        e.preventDefault(); dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFiles(Array.from(e.dataTransfer.files));
     });
 
     function handleFiles(files) {
         Promise.all(files.map(readCSVFile)).then(results => {
-            const validResults = results.filter(r => r !== null);
-            if (validResults.length === 0) {
-                alert("Could not read files. Please check CSV format.");
-                return;
-            }
-
-            // 1. Stats
-            buildStatsInputs();
-
-            // 2. Sort Logic applied here
-            const sortedResults = sortFiles(validResults);
-
-            // 3. Build Sections
-            const container = document.getElementById('workoutsContainer');
-            container.innerHTML = ''; 
+            const valid = results.filter(r => r !== null);
+            if (valid.length === 0) return alert("Invalid CSV(s)");
             
-            sortedResults.forEach(res => {
-                createWorkoutSection(res.title, res.data, container);
+            buildStatsInputs();
+            
+            // Sort
+            valid.sort((a, b) => {
+                const da = dayMap[a.title.toLowerCase()] || 99;
+                const db = dayMap[b.title.toLowerCase()] || 99;
+                return da === db ? a.title.localeCompare(b.title) : da - db;
             });
 
-            // 4. Init
+            const container = document.getElementById('workoutsContainer');
+            container.innerHTML = '';
+            valid.forEach((res, idx) => createWorkoutSection(res.title, res.data, container, idx));
+
             triggerInitialCalculation();
 
-            // 5. Show UI
             document.getElementById('uploadCard').classList.add('hidden');
             document.getElementById('mainInterface').classList.remove('hidden');
             document.getElementById('backBtn').classList.remove('hidden');
-        }).catch(err => {
-            console.error(err);
-            alert("Error processing files.");
         });
     }
 
     function readCSVFile(file) {
-        return new Promise((resolve, reject) => {
+        return new Promise(resolve => {
             const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const text = e.target.result;
-                    const parsed = parseCSV(text);
-                    const title = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
-                    resolve({ title: title, data: parsed.data });
-                } catch (err) { resolve(null); }
+            reader.onload = e => {
+                const title = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+                resolve({ title, data: parseCSV(e.target.result) });
             };
             reader.onerror = () => resolve(null);
             reader.readAsText(file);
         });
     }
 
-    function parseCSV(csvText) {
-        const lines = csvText.split('\n');
+    function parseCSV(text) {
+        const lines = text.split('\n');
         const data = [];
-        for (let i = 1; i < lines.length; i++) {
+        for(let i=1; i<lines.length; i++){
             const row = lines[i].trim();
-            if (!row) continue;
+            if(!row) continue;
             const cols = row.split(',');
-            const exercise = (cols[0] || "Unknown").trim();
-            const sets = (cols[1] || "-").trim();
-            const reps = parseFloat(cols[2]); 
-            const rawRPE = (cols[3] || "").trim();
-            const notes = cols[4] ? cols[4].trim() : "";
-
-            if (!exercise) continue;
-
-            let isBackoff = false;
-            let valRPE = 0;
-            let dropAmount = 0;
-
-            if (rawRPE.includes('%') || rawRPE.startsWith('-')) {
+            const exercise = (cols[0]||"").trim();
+            if(!exercise) continue;
+            
+            const rawRPE = (cols[3]||"").trim();
+            let isBackoff = false, drop=0, rpe=0;
+            if(rawRPE.includes('%') || rawRPE.startsWith('-')){
                 isBackoff = true;
-                dropAmount = parseFloat(rawRPE.replace(/[^0-9.]/g, ''));
-            } else {
-                valRPE = parseFloat(rawRPE);
-            }
+                drop = parseFloat(rawRPE.replace(/[^0-9.]/g, ''));
+            } else { rpe = parseFloat(rawRPE); }
 
-            data.push({ 
-                exercise, sets, reps: isNaN(reps) ? 0 : reps, 
-                rpe: isNaN(valRPE) ? 0 : valRPE, notes, isBackoff, dropAmount
+            data.push({
+                exercise, sets: (cols[1]||"-").trim(), reps: parseFloat(cols[2])||0,
+                rpe, notes: (cols[4]||"").trim(), isBackoff, drop
             });
         }
-        return { data };
+        return data;
     }
 
-    // --- UI BUILDERS ---
+    // --- BUILDERS ---
     function buildStatsInputs() {
-        const container = document.getElementById('statsContainer');
-        container.innerHTML = '';
-        const mainLifts = ['Squat', 'Bench Press', 'Deadlift'];
-        mainLifts.forEach(lift => {
-            const savedMax = localStorage.getItem('1rm_' + lift) || '';
-            const div = document.createElement('div');
-            div.className = 'stat-row';
-            div.innerHTML = `
-                <label class="stat-label">${lift}</label>
-                <input type="number" id="stat_${lift}" value="${savedMax}" placeholder="0" oninput="updateMax('${lift}', this.value)">
-            `;
-            container.appendChild(div);
+        const c = document.getElementById('statsContainer'); c.innerHTML = '';
+        ['Squat','Bench Press','Deadlift'].forEach(lift => {
+            const val = localStorage.getItem('1rm_'+lift) || '';
+            const d = document.createElement('div');
+            d.innerHTML = `<label class="stat-label">${lift}</label>
+            <input type="number" value="${val}" placeholder="0" oninput="updateMax('${lift}',this.value)">`;
+            c.appendChild(d);
         });
     }
 
-    function createWorkoutSection(title, data, parentContainer) {
+    function createWorkoutSection(title, data, container, index) {
         const section = document.createElement('div');
         section.className = 'workout-section';
+        section.id = `section-${index}`;
 
-        const header = document.createElement('div');
-        header.className = 'workout-header';
-        header.innerText = title;
-        section.appendChild(header);
+        section.innerHTML = `<div class="workout-header">
+            <span>${title}</span>
+        </div>`;
 
-        const tableWrapper = document.createElement('div');
-        tableWrapper.style.overflowX = 'auto';
-        
         const table = document.createElement('table');
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    <th style="width: 35%">Exercise</th>
-                    <th style="width: 40%">Scheme</th>
-                    <th style="width: 25%">Load</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-        
+        table.innerHTML = `<thead><tr><th style="width:10px"></th><th>Exercise</th><th>Target</th><th>Act.</th></tr></thead><tbody></tbody>`;
         const tbody = table.querySelector('tbody');
         let lastMainRow = null;
 
         data.forEach(row => {
-            if (row.isBackoff) {
-                if (lastMainRow) {
-                    createBackoffRow(lastMainRow, row.dropAmount, row.sets, row.reps, row.exercise);
-                }
-                return; 
+            if(row.isBackoff && lastMainRow) {
+                createBackoffRow(tbody, lastMainRow, row);
+                return;
             }
 
             const tr = document.createElement('tr');
             tr.className = "main-row";
-            
-            let rpeOptions = '';
-            const validReps = rpeChart[row.reps]; 
-            if (validReps) {
-                const sortedRPEs = Object.keys(validReps).sort((a,b) => b-a);
-                rpeOptions = `<select class="rpe-select" onchange="updateRowRPE(this)">`;
-                let found = false;
-                sortedRPEs.forEach(val => {
-                    const isSelected = (parseFloat(val) === row.rpe) ? 'selected' : '';
-                    if(isSelected) found = true;
-                    rpeOptions += `<option value="${val}" ${isSelected}>@${val}</option>`;
-                });
-                if(!found) rpeOptions += `<option value="" selected disabled>@?</option>`;
-                rpeOptions += `</select>`;
-            } else {
-                rpeOptions = `<span style="color:var(--text-muted)">N/A</span>`;
-            }
-
-            const pct = (validReps && validReps[row.rpe]) ? validReps[row.rpe] : 0;
-            
             tr.setAttribute('data-exercise', row.exercise);
             tr.setAttribute('data-reps', row.reps);
+            
+            // Calculate PCT
+            const validReps = rpeChart[row.reps];
+            let rpeSelect = `<span style="color:#94a3b8">N/A</span>`;
+            let pct = 0;
+            
+            if(validReps) {
+                pct = validReps[row.rpe] || 0;
+                // Build tiny RPE dropdown
+                const opts = Object.keys(validReps).sort((a,b)=>b-a).map(r => 
+                    `<option value="${r}" ${parseFloat(r)===row.rpe?'selected':''}>@${r}</option>`
+                ).join('');
+                rpeSelect = `<select class="rpe-select" onchange="updateRowRPE(this)">${opts}</select>`;
+            }
             tr.setAttribute('data-pct', pct);
 
+            // Determine if Main Lift (for Warmup button)
+            const isMainLift = /squat|bench|deadlift/i.test(row.exercise) && !/dumbbell|machine/i.test(row.exercise);
+            const warmupBtn = isMainLift ? `<button class="btn btn-sm btn-warmup" onclick="addWarmups(this)">🔥</button>` : '';
+
             tr.innerHTML = `
+                <td><div class="check-circle" onclick="toggleCheck(this)"></div></td>
                 <td>
-                    <div style="font-weight:bold">${row.exercise}</div>
-                    <div style="font-size:0.8rem; color: var(--text-muted)">${row.notes}</div>
+                    <div style="font-weight:bold">${row.exercise} ${warmupBtn}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted)">${row.notes}</div>
                 </td>
                 <td>
-                    <div style="display:flex; align-items:center; flex-wrap:wrap;">
-                        <span>${row.sets} x ${row.reps || '?'}</span>
-                        ${rpeOptions}
-                    </div>
+                    <div style="font-size:0.85rem">${row.sets} x ${row.reps} ${rpeSelect}</div>
+                    <div class="load-cell" onclick="showPlateMath(this)">-</div>
                     <button class="btn btn-sm" onclick="addManualBackoff(this)">+ Backoff</button>
                 </td>
-                <td>
-                    <div class="load-cell">-</div>
-                </td>
+                <td><input type="number" class="actual-input" placeholder="kg"></td>
             `;
             tbody.appendChild(tr);
             lastMainRow = tr;
         });
 
-        tableWrapper.appendChild(table);
-        section.appendChild(tableWrapper);
-        parentContainer.appendChild(section);
+        section.appendChild(table);
+        
+        // Finish Button
+        const finishBtn = document.createElement('button');
+        finishBtn.className = 'btn btn-finish';
+        finishBtn.innerText = "Finish Workout ✅";
+        finishBtn.onclick = () => finishWorkout(title, tbody);
+        section.appendChild(finishBtn);
+
+        container.appendChild(section);
     }
 
-    // --- CALC LOGIC ---
-    function triggerInitialCalculation() {
-        ['Squat', 'Bench Press', 'Deadlift'].forEach(lift => {
-            const val = localStorage.getItem('1rm_' + lift);
-            if(val) updateMax(lift, val);
-        });
-    }
+    function createBackoffRow(tbody, mainRow, rowData) {
+        const tr = document.createElement('tr');
+        tr.className = 'backoff-row';
+        const label = rowData.exercise === mainRow.getAttribute('data-exercise') ? "Backoff" : rowData.exercise;
+        const setsReps = (rowData.sets && rowData.reps) ? `${rowData.sets} x ${rowData.reps}` : "";
 
-    window.updateMax = function(baseLiftName, weight) {
-        localStorage.setItem('1rm_' + baseLiftName, weight);
-        const searchKey = baseLiftName.toLowerCase().replace(" press", ""); 
-
-        const allRows = document.querySelectorAll(`tr.main-row`);
-        allRows.forEach(row => {
-            const rowExercise = row.getAttribute('data-exercise').toLowerCase();
-            if (rowExercise.includes(searchKey)) {
-                const pct = parseFloat(row.getAttribute('data-pct'));
-                const cell = row.querySelector('.load-cell');
-                let calculatedLoad = 0;
-
-                if (weight && pct > 0) {
-                    calculatedLoad = Math.round((weight * pct) / 2.5) * 2.5;
-                    cell.innerText = calculatedLoad;
-                    cell.setAttribute('data-actual-load', calculatedLoad);
-                } else {
-                    cell.innerText = "-";
-                    cell.removeAttribute('data-actual-load');
-                }
-                updateAttachedBackoffs(row, calculatedLoad);
-            }
-        });
-    }
-
-    window.updateRowRPE = function(selectElem) {
-        const row = selectElem.closest('tr');
-        const newRPE = selectElem.value;
-        const reps = row.getAttribute('data-reps');
-        const exercise = row.getAttribute('data-exercise').toLowerCase();
-
-        if(rpeChart[reps] && rpeChart[reps][newRPE]) {
-            const newPct = rpeChart[reps][newRPE];
-            row.setAttribute('data-pct', newPct);
-        }
-
-        let liftKey = null;
-        if(exercise.includes('squat')) liftKey = 'Squat';
-        else if(exercise.includes('bench')) liftKey = 'Bench Press';
-        else if(exercise.includes('deadlift')) liftKey = 'Deadlift';
-
-        if(liftKey) {
-            const currentMax = localStorage.getItem('1rm_' + liftKey);
-            if(currentMax) updateMax(liftKey, currentMax);
-        }
-    }
-
-    function createBackoffRow(mainRow, dropVal, sets, reps, title) {
-        const newRow = document.createElement('tr');
-        newRow.className = 'backoff-row';
-        const label = title ? title : "Backoff";
-        const setsReps = (sets && reps) ? `<div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">${sets} x ${reps}</div>` : "";
-
-        newRow.innerHTML = `
+        tr.innerHTML = `
+            <td><div class="check-circle" onclick="toggleCheck(this)"></div></td>
+            <td><div class="backoff-label">${label}</div></td>
             <td>
-                <div class="backoff-label">${label}</div>
-                ${setsReps}
-            </td>
-            <td>
-                 <div class="drop-input-group">
-                    <span style="font-size:0.9rem; color:var(--text-muted)">Drop:</span>
-                    <input type="number" class="tiny-input" value="${dropVal}" min="0" max="50" oninput="recalculateBackoff(this)">
-                    <span style="font-size:0.9rem; color:var(--text-muted)">%</span>
+                <div class="drop-input-group">
+                    <span style="font-size:0.8rem; color:var(--text-muted)">Drop:</span>
+                    <input type="number" class="tiny-input" value="${rowData.drop||10}" oninput="recalculateBackoff(this)">%
                 </div>
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px">${setsReps}</div>
+                <div class="load-cell backoff-load" onclick="showPlateMath(this)">-</div>
+                <button class="btn btn-del" onclick="this.closest('tr').remove()">×</button>
             </td>
-            <td style="display: flex; justify-content: space-between; align-items: center;">
-                <div class="load-cell backoff-load">-</div>
-                 <button class="btn btn-del" onclick="this.closest('tr').remove()">×</button>
-            </td>
+            <td><input type="number" class="actual-input" placeholder="kg"></td>
         `;
         
+        // Find insert position
         let insertAfter = mainRow;
         while(insertAfter.nextElementSibling && insertAfter.nextElementSibling.classList.contains('backoff-row')) {
             insertAfter = insertAfter.nextElementSibling;
         }
-        mainRow.parentNode.insertBefore(newRow, insertAfter.nextSibling);
-        
-        const mainLoad = mainRow.querySelector('.load-cell').getAttribute('data-actual-load');
-        if(mainLoad) {
-            setTimeout(() => {
-                recalculateBackoff(newRow.querySelector('.tiny-input'));
-            }, 0);
-        }
+        tbody.insertBefore(tr, insertAfter.nextSibling);
+
+        setTimeout(() => recalculateBackoff(tr.querySelector('.tiny-input')), 50);
     }
 
-    window.addManualBackoff = function(btnElement) {
-        const mainRow = btnElement.closest('tr');
-        createBackoffRow(mainRow, 10, null, null, null);
+    // --- LOGIC: WARMUPS ---
+    function addWarmups(btn) {
+        const mainRow = btn.closest('tr');
+        const mainLoad = parseFloat(mainRow.querySelector('.load-cell').getAttribute('data-actual-load'));
+        if(!mainLoad) return alert("Enter a 1RM first to generate warmups.");
+
+        // Insert warmups BEFORE the main row
+        const w1 = createWarmupRow("Empty Bar", "10", 20);
+        const w2 = createWarmupRow("Warmup 1", "5", Math.round((mainLoad * 0.5)/2.5)*2.5);
+        const w3 = createWarmupRow("Warmup 2", "3", Math.round((mainLoad * 0.7)/2.5)*2.5);
+        const w4 = createWarmupRow("Warmup 3", "1", Math.round((mainLoad * 0.9)/2.5)*2.5);
+
+        const tbody = mainRow.parentNode;
+        tbody.insertBefore(w4, mainRow);
+        tbody.insertBefore(w3, w4);
+        tbody.insertBefore(w2, w3);
+        tbody.insertBefore(w1, w2);
+    }
+
+    function createWarmupRow(label, reps, load) {
+        const tr = document.createElement('tr');
+        tr.className = 'warmup-row';
+        tr.innerHTML = `
+            <td><div class="check-circle" onclick="toggleCheck(this)"></div></td>
+            <td><div class="warmup-label">${label}</div></td>
+            <td>
+                <div>1 x ${reps}</div>
+                <div class="load-cell" onclick="showPlateMath(this)">${load}</div>
+                <button class="btn btn-del" onclick="this.closest('tr').remove()">×</button>
+            </td>
+             <td><input type="number" class="actual-input" placeholder="kg"></td>
+        `;
+        return tr;
+    }
+
+    // --- LOGIC: PLATE MATH ---
+    function showPlateMath(cell) {
+        const weight = parseFloat(cell.innerText);
+        if(isNaN(weight)) return;
+
+        document.getElementById('modalWeightDisplay').innerText = weight;
+        const container = document.getElementById('plateVisuals');
+        container.innerHTML = '';
+
+        const bar = 20;
+        let perSide = (weight - bar) / 2;
+        
+        if(perSide <= 0) {
+            container.innerHTML = "Just the bar (or less)!";
+            document.getElementById('plateModal').style.display = 'flex';
+            return;
+        }
+
+        // Available plates
+        const plates = [
+            {w: 25, c: 'plate-25'}, {w: 20, c: 'plate-20'}, {w: 15, c: 'plate-15'},
+            {w: 10, c: 'plate-10'}, {w: 5, c: 'plate-5'}, {w: 2.5, c: 'plate-2-5'}, {w: 1.25, c: 'plate-1-25'}
+        ];
+
+        // Barbell Graphic
+        const barbell = document.createElement('div');
+        barbell.className = 'barbell';
+        container.appendChild(barbell);
+
+        plates.forEach(p => {
+            while(perSide >= p.w) {
+                const div = document.createElement('div');
+                div.className = `plate ${p.c}`;
+                div.innerText = p.w;
+                container.appendChild(div);
+                perSide -= p.w;
+                // float fix
+                perSide = Math.round(perSide * 100) / 100;
+            }
+        });
+
+        document.getElementById('plateModal').style.display = 'flex';
+    }
+
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    // --- LOGIC: LOGGING & HISTORY ---
+    function toggleCheck(el) {
+        el.classList.toggle('checked');
+        el.closest('tr').classList.toggle('completed');
+    }
+
+    function finishWorkout(title, tbody) {
+        const completedSets = [];
+        tbody.querySelectorAll('tr').forEach(tr => {
+            if(tr.querySelector('.check-circle.checked')) {
+                const exercise = tr.querySelector('td:nth-child(2)').innerText.split('\n')[0].replace('🔥','').trim();
+                const planned = tr.querySelector('.load-cell').innerText;
+                const actual = tr.querySelector('.actual-input').value;
+                completedSets.push({ exercise, weight: actual || planned });
+            }
+        });
+
+        if(completedSets.length === 0) return alert("Check off some sets first!");
+
+        const log = {
+            date: new Date().toLocaleDateString(),
+            title: title,
+            sets: completedSets
+        };
+
+        const history = JSON.parse(localStorage.getItem('workout_history') || '[]');
+        history.unshift(log); // Add to top
+        localStorage.setItem('workout_history', JSON.stringify(history));
+
+        alert("Workout Saved! Good job.");
+    }
+
+    function showHistory() {
+        const history = JSON.parse(localStorage.getItem('workout_history') || '[]');
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+
+        if(history.length === 0) list.innerHTML = "<p>No logs yet.</p>";
+
+        history.forEach(h => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            let setList = h.sets.map(s => `<div>• ${s.exercise}: <strong>${s.weight}kg</strong></div>`).join('');
+            item.innerHTML = `<h3>${h.date} - ${h.title}</h3>${setList}`;
+            list.appendChild(item);
+        });
+
+        document.getElementById('historyModal').style.display = 'flex';
+    }
+
+    // --- CALC CORE (Existing Logic) ---
+    function triggerInitialCalculation() {
+        ['Squat','Bench Press','Deadlift'].forEach(l => {
+            const v = localStorage.getItem('1rm_'+l);
+            if(v) updateMax(l,v);
+        });
+    }
+
+    window.updateMax = function(lift, w) {
+        localStorage.setItem('1rm_'+lift, w);
+        const search = lift.toLowerCase().replace(" press","");
+        document.querySelectorAll('tr.main-row').forEach(row => {
+            if(row.getAttribute('data-exercise').toLowerCase().includes(search)){
+                const pct = parseFloat(row.getAttribute('data-pct'));
+                const cell = row.querySelector('.load-cell');
+                let load = 0;
+                if(w && pct > 0) {
+                    load = Math.round((w * pct)/2.5)*2.5;
+                    cell.innerText = load;
+                    cell.setAttribute('data-actual-load', load);
+                } else {
+                    cell.innerText = "-";
+                }
+                updateAttachedBackoffs(row, load);
+            }
+        });
+    }
+
+    window.updateRowRPE = function(sel) {
+        const row = sel.closest('tr');
+        const reps = row.getAttribute('data-reps');
+        if(rpeChart[reps]) row.setAttribute('data-pct', rpeChart[reps][sel.value]);
+        
+        const ex = row.getAttribute('data-exercise').toLowerCase();
+        let lift = null;
+        if(ex.includes('squat')) lift='Squat';
+        else if(ex.includes('bench')) lift='Bench Press';
+        else if(ex.includes('deadlift')) lift='Deadlift';
+        
+        if(lift) {
+            const max = localStorage.getItem('1rm_'+lift);
+            if(max) updateMax(lift, max);
+        }
     }
 
     function updateAttachedBackoffs(mainRow, mainLoad) {
-        let nextRow = mainRow.nextElementSibling;
-        while(nextRow && nextRow.classList.contains('backoff-row')) {
-            const dropInput = nextRow.querySelector('.tiny-input');
-            calculateSingleBackoff(nextRow, mainLoad, dropInput.value);
-            nextRow = nextRow.nextElementSibling;
+        let next = mainRow.nextElementSibling;
+        while(next && (next.classList.contains('backoff-row') || next.classList.contains('warmup-row'))) {
+            if(next.classList.contains('backoff-row')) {
+                recalculateBackoff(next.querySelector('.tiny-input'));
+            }
+            next = next.nextElementSibling;
         }
     }
 
-    window.recalculateBackoff = function(inputElement) {
-        const currentRow = inputElement.closest('tr');
-        let mainRow = currentRow.previousElementSibling;
-        while(mainRow && !mainRow.classList.contains('main-row')) {
-            mainRow = mainRow.previousElementSibling;
-        }
-        if(mainRow) {
-            const mainLoadAttr = mainRow.querySelector('.load-cell').getAttribute('data-actual-load');
-            const mainLoad = mainLoadAttr ? parseFloat(mainLoadAttr) : 0;
-            calculateSingleBackoff(currentRow, mainLoad, inputElement.value);
+    window.recalculateBackoff = function(inp) {
+        const row = inp.closest('tr');
+        // Find main row (skip warmups/backoffs going up)
+        let main = row.previousElementSibling;
+        while(main && !main.classList.contains('main-row')) main = main.previousElementSibling;
+        
+        if(main) {
+            const base = parseFloat(main.querySelector('.load-cell').getAttribute('data-actual-load'));
+            const drop = parseFloat(inp.value);
+            const cell = row.querySelector('.backoff-load');
+            if(base > 0 && drop >= 0) {
+                cell.innerText = Math.round((base * (1 - drop/100))/2.5)*2.5;
+            } else cell.innerText = "-";
         }
     }
 
-    function calculateSingleBackoff(rowElement, baseLoad, dropPercent) {
-        const cell = rowElement.querySelector('.backoff-load');
-        if (baseLoad > 0 && dropPercent >= 0) {
-            const decimalDrop = 1 - (dropPercent / 100);
-            const rawBackoff = baseLoad * decimalDrop;
-            const finalLoad = Math.round(rawBackoff / 2.5) * 2.5;
-            cell.innerText = finalLoad > 0 ? finalLoad : 0;
-        } else {
-            cell.innerText = "-";
-        }
+    window.addManualBackoff = function(btn) {
+        const row = btn.closest('tr');
+        const tbody = row.parentNode;
+        const dummy = { exercise: row.getAttribute('data-exercise'), sets: '-', reps: '-', drop: 10 };
+        createBackoffRow(tbody, row, dummy);
     }
     
+    function goBack() { location.reload(); }
+
     window.downloadSample = function() {
-        const csvContent = "data:text/csv;charset=utf-8,Exercise,Sets,Reps,RPE,Notes\nSquat,1,5,8,Top Set\nSquat Backoff,2,5,-10%,Volume\nComp Bench,1,1,8,Top Single";
+        const csvContent = "data:text/csv;charset=utf-8,Exercise,Sets,Reps,RPE,Notes\nSquat,1,5,8,Top Set\nSquat Backoff,2,5,-10%,Volume";
         const link = document.createElement("a");
         link.href = encodeURI(csvContent);
         link.download = "Monday.csv";

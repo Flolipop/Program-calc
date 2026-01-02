@@ -200,16 +200,28 @@ License & attribution:
         .loader { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 1rem auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
+<style>
+    /* Fullscreen settings view for mobile */
+    #settingsView { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100vh; background: var(--bg); display: none; z-index: 3000; padding: 1rem; box-sizing: border-box; overflow:auto; }
+    #settingsView .card { max-width: 900px; margin: 0 auto; }
+    /* When sidebar is moved into the settings view it must be visible (override default .sidebar-wrapper rule) */
+    #settingsView .sidebar-wrapper { display: block !important; position: static !important; width: 100%; }
+    #settingsView .sidebar-wrapper .card { margin-bottom: 1rem; }
+    /* Generic fullscreen overlay class for graphs/history/settings */
+    .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100vh; background: var(--bg); z-index: 3000; padding: 1rem; box-sizing: border-box; overflow:auto; }
+    .modal-overlay.fullscreen { background: var(--bg); }
+    .modal-overlay.fullscreen .modal-content { width: 100%; max-width: 100%; height: 100vh; max-height: 100vh; border-radius: 0; padding: 1rem; box-sizing: border-box; overflow:auto; }
+</style>
 </head>
 <body>
 
 <div class="navbar">
     <h1>Smart RPE Pro</h1>
     <div class="top-nav-buttons">
-        <button style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleGraphView()">Graphs 📊</button>
+    <button style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleGraphView()">Graphs</button>
         <button style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="showHistory()">History</button>
     <button id="expandToggleBtn" style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleExpandToggle()">Expand All</button>
-        <button id="settingsBtn" style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleSettings()">Settings ⚙️</button>
+    <button id="settingsBtn" style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleSettings()">Settings</button>
     </div>
 </div>
 
@@ -217,7 +229,7 @@ License & attribution:
 
 <div class="main-grid">
     <div class="sidebar-wrapper">
-        <div class="card">
+    <div class="card">
             <h2>Your Maxes</h2>
             <div id="statsInputs"></div>
         </div>
@@ -275,7 +287,10 @@ License & attribution:
                     <span style="opacity:0.5">Bar</span> = Volume
                 </div>
             </div>
-            <div id="graphLoader" style="font-size:0.8rem; color:var(--highlight); display:none;">Loading...</div>
+            <div style="display:flex; gap:12px; align-items:center">
+                <div id="graphLoader" style="font-size:0.8rem; color:var(--highlight); display:none;">Loading...</div>
+                <button id="graphBackBtn" style="background:var(--card-bg); color:var(--text); border:1px solid var(--border); padding:0.4rem 0.8rem; border-radius:6px; cursor:pointer;" onclick="closeGraphView()">Back</button>
+            </div>
         </div>
 
         <div class="card">
@@ -293,6 +308,17 @@ License & attribution:
             <div class="chart-container"><canvas id="dlChart"></canvas></div>
         </div>
     </div>
+
+    <!-- Mobile settings view: on small screens we temporarily move the sidebar here -->
+    <div id="settingsView" style="display:none; width:100%;">
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h2>Settings</h2>
+                <button id="settingsBackBtn" style="background:var(--card-bg); color:var(--text); border:1px solid var(--border); padding:0.4rem 0.8rem; border-radius:6px; cursor:pointer;" onclick="closeSettingsView()">Back</button>
+            </div>
+            <div id="settingsContainer" style="margin-top:12px;"></div>
+        </div>
+    </div>
 </div>
 
 <div id="plateModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="closeModal('plateModal')">
@@ -308,7 +334,10 @@ License & attribution:
 
 <div id="historyModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="closeModal('historyModal')">
     <div class="modal-content" style="max-height:80vh; overflow-y:auto" onclick="event.stopPropagation()" tabindex="-1">
-        <h2>Session History</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h2 style="margin:0;">Session History</h2>
+            <button id="historyBackBtn" style="background:var(--card-bg); color:var(--text); border:1px solid var(--border); padding:0.4rem 0.8rem; border-radius:6px; cursor:pointer;" onclick="closeHistoryView()">Back</button>
+        </div>
         <div id="historyLogs"></div>
         <div style="display:flex; gap:8px; margin-top:10px;">
             <button id="exportHistoryBtn" style="flex:1; padding:0.8rem; background:var(--card-bg); border:1px solid var(--border); color:var(--text);" onclick="exportHistoryCSV()">Export CSV</button>
@@ -316,7 +345,7 @@ License & attribution:
             <button id="clearHistoryBtn" style="flex:1; padding:0.8rem; background:transparent; border:1px solid var(--danger); color:var(--danger);" onclick="localStorage.removeItem('workout_history'); showHistory()">Clear History</button>
             <input id="importHistoryInput" type="file" accept=".csv,text/csv" style="display:none" onchange="handleHistoryFileChange(event)">
         </div>
-        <button id="historyCloseBtn" style="width:100%; margin-top:10px; padding:0.8rem;" onclick="closeModal('historyModal')">Close</button>
+            <button id="historyCloseBtn" style="width:100%; margin-top:10px; padding:0.8rem;" onclick="closeHistoryView()">Close</button>
     </div>
 </div>
 
@@ -359,8 +388,68 @@ License & attribution:
     function toggleSettings() {
         const mg = document.querySelector('.main-grid');
         if (!mg) return;
-        const open = mg.classList.toggle('sidebar-open');
-        localStorage.setItem('sidebar_open', open ? 'true' : 'false');
+        const sv = document.getElementById('settingsView');
+        const sc = document.getElementById('settingsContainer');
+        const sidebar = document.querySelector('.sidebar-wrapper');
+        if (!sv || !sc || !sidebar) {
+            // fallback to previous behavior
+            const open = mg.classList.toggle('sidebar-open');
+            localStorage.setItem('sidebar_open', open ? 'true' : 'false');
+            return;
+        }
+
+        if (sv.style.display === 'block') {
+            closeSettingsView();
+            return;
+        }
+
+        // move sidebar into the settings container
+        sc.appendChild(sidebar);
+
+        // remember which main view was visible so we can restore it
+        const wd = document.getElementById('workoutDisplay');
+        const gv = document.getElementById('graphView');
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        window._prevView = (gv && gv.style.display !== 'none') ? 'graph' : 'workout';
+
+        // hide main workout/graph areas and top chrome
+        if (wd) wd.style.display = 'none';
+        if (gv) gv.style.display = 'none';
+        if (nav) nav.style.display = 'none';
+        if (weeks) weeks.style.display = 'none';
+
+        // prevent body scroll behind the settings overlay
+        document.body.style.overflow = 'hidden';
+        sv.style.display = 'block';
+    }
+
+    function closeSettingsView() {
+        const sv = document.getElementById('settingsView');
+        const sidebar = document.querySelector('.sidebar-wrapper');
+        const mg = document.querySelector('.main-grid');
+        const workout = document.getElementById('workoutDisplay');
+        if (!sv || !sidebar || !mg || !workout) return;
+        // move sidebar back to the start of the main grid
+        mg.insertBefore(sidebar, workout);
+        sv.style.display = 'none';
+
+        // restore previously visible view (graph or workout)
+        const gv = document.getElementById('graphView');
+        if (window._prevView === 'graph' && gv) {
+            gv.style.display = 'block';
+            if (workout) workout.style.display = 'none';
+        } else {
+            if (workout) workout.style.display = 'block';
+            if (gv) gv.style.display = 'none';
+        }
+
+        // restore top chrome
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        if (nav) nav.style.display = '';
+        if (weeks) weeks.style.display = '';
+        document.body.style.overflow = '';
     }
 
     function initSidebar() {
@@ -523,7 +612,7 @@ License & attribution:
                     </div>
                     <div class="content">
                         <table><thead><tr><th style="width:30px"></th><th>Exercise</th><th>Target</th><th>Act.</th></tr></thead><tbody></tbody></table>
-                        <button class="btn-finish" onclick="finishWorkout('${name}', this)">Finish Workout ✅</button>
+                        <button class="btn-finish" onclick="finishWorkout('${name}', this)">Finish Workout</button>
                     </div>`;
                 tbody = currentSection.querySelector('tbody');
                 return;
@@ -967,7 +1056,24 @@ License & attribution:
     showPlates = function(txt) { _origShowPlates(txt); openModal('plateModal'); };
 
     const _origShowHistory = showHistory;
-    showHistory = function() { _origShowHistory(); openModal('historyModal'); };
+    showHistory = function() { 
+        _origShowHistory(); 
+        openModal('historyModal'); 
+        // ensure history modal uses the fullscreen modal styles (matches Graphs/Settings)
+        const _histModal = document.getElementById('historyModal');
+        if (_histModal) _histModal.classList.add('fullscreen');
+        // behave like a full-page overlay: hide top chrome and prevent body scroll
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        const wd = document.getElementById('workoutDisplay');
+        const gv = document.getElementById('graphView');
+        window._prevView = (gv && gv.style.display !== 'none') ? 'graph' : 'workout';
+        if (wd) wd.style.display = 'none';
+        if (gv) gv.style.display = 'none';
+        if (nav) nav.style.display = 'none';
+        if (weeks) weeks.style.display = 'none';
+        document.body.style.overflow = 'hidden';
+    };
 
     // Global shortcuts (g = graphs toggle, h = history, / = focus search (if exists))
     document.addEventListener('keydown', (e) => {
@@ -975,6 +1081,49 @@ License & attribution:
         if (e.key === 'g') { e.preventDefault(); toggleGraphView(); }
         if (e.key === 'h') { e.preventDefault(); showHistory(); }
     });
+
+    function closeHistoryView() {
+        // remove fullscreen flag then close
+        const _histModalClose = document.getElementById('historyModal');
+        if (_histModalClose) _histModalClose.classList.remove('fullscreen');
+        closeModal('historyModal');
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        const wd = document.getElementById('workoutDisplay');
+        const gv = document.getElementById('graphView');
+        // restore previous view
+        if (window._prevView === 'graph' && gv) {
+            gv.style.display = 'block';
+            gv.classList.add('overlay');
+            if (wd) wd.style.display = 'none';
+        } else {
+            if (wd) wd.style.display = 'block';
+            if (gv) gv.style.display = 'none';
+            gv.classList.remove('overlay');
+        }
+        if (nav) nav.style.display = '';
+        if (weeks) weeks.style.display = '';
+        document.body.style.overflow = '';
+    }
+
+    function closeGraphView() {
+        const gDisplay = document.getElementById('graphView');
+        const wDisplay = document.getElementById('workoutDisplay');
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        if (!gDisplay) return;
+        // hide overlay
+        gDisplay.classList.remove('overlay');
+        gDisplay.style.display = 'none';
+        // restore previous view
+        if (window._prevView === 'graph') {
+            // if graph was previous, nothing to show
+        }
+        if (wDisplay) wDisplay.style.display = 'block';
+        if (nav) nav.style.display = '';
+        if (weeks) weeks.style.display = '';
+        document.body.style.overflow = '';
+    }
 
     // After rendering new tab content, call attachInputHandlers
     const _origLoadTab = loadTab;
@@ -991,13 +1140,31 @@ License & attribution:
     function toggleGraphView() {
         const wDisplay = document.getElementById('workoutDisplay');
         const gDisplay = document.getElementById('graphView');
-        if (gDisplay.style.display === 'none') {
-            wDisplay.style.display = 'none';
-            gDisplay.style.display = 'block';
-            loadFullProgramData();
-        } else {
+        const nav = document.querySelector('.navbar');
+        const weeks = document.getElementById('navWeeks');
+        if (!gDisplay) return;
+
+        if (gDisplay.classList.contains('overlay')) {
+            // closing overlay
+            gDisplay.classList.remove('overlay');
             gDisplay.style.display = 'none';
-            wDisplay.style.display = 'block';
+            if (window._prevView === 'graph') {
+                // if graph was previous, keep it hidden
+            }
+            if (wDisplay) wDisplay.style.display = 'block';
+            if (nav) nav.style.display = '';
+            if (weeks) weeks.style.display = '';
+            document.body.style.overflow = '';
+        } else {
+            // opening overlay
+            window._prevView = (gDisplay.style.display !== 'none') ? 'graph' : 'workout';
+            if (wDisplay) wDisplay.style.display = 'none';
+            if (gDisplay) gDisplay.style.display = 'block';
+            gDisplay.classList.add('overlay');
+            if (nav) nav.style.display = 'none';
+            if (weeks) weeks.style.display = 'none';
+            document.body.style.overflow = 'hidden';
+            loadFullProgramData();
         }
     }
 

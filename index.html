@@ -1,4 +1,73 @@
 <!DOCTYPE html>
+<!--
+File: /c:/Users/flo/Documents/sheetsversion.html
+Purpose:
+    - Single-file web UI for viewing and interacting with a Google Sheets‑backed training program (Smart RPE Pro).
+    - Presents weekly navigation, per-day collapsible workouts, progress tracking, and program analysis charts (Squat, Bench, Deadlift).
+    - Supports entering "actual" lifts, checking sets as completed, viewing plate breakdowns, and persisting session history locally.
+
+Quick configuration:
+    - Set SHEET_ID and API_KEY constants near the top of the script to connect to your Google Sheets data.
+        * Do NOT commit API keys to public repos; prefer server-side proxy or environment variables for production.
+    - Rounding behavior selectable via the #roundingMode select (nearest / up / down).
+
+High-level structure:
+    - CSS variables (under :root) define theme colors, component backgrounds, progress bar colors and danger/active highlights.
+    - Layout:
+        * .navbar: top controls (Graphs/History).
+        * .week-nav: horizontal week selector buttons.
+        * .main-grid: two-column layout with left sidebar (maxes, rounding, reset) and right content (workouts or graphs).
+        * #workoutDisplay: main area where workouts are rendered.
+        * #graphView: separate layout for charts (sqChart, bpChart, dlChart).
+    - Modals:
+        * #plateModal: visual plate breakdown for a selected weight.
+        * #historyModal: session history viewer; stored in localStorage key 'workout_history'.
+
+Styling & responsiveness:
+    - Uses a compact responsive grid; switches to a single column under 900px.
+    - Custom components: card, workout-section (collapsible), progress bars, check circles, loader spinner.
+    - Accessibility considerations:
+        * Buttons and controls use visible focusable areas, but consider adding ARIA roles and keyboard handlers for collapsible sections and modal focus trapping.
+
+Data model & runtime globals:
+    - RPE_CHART: local conversion table mapping RPE and reps to a multiplier (used for intensity calculations).
+    - Globals declared:
+        * activeTab: currently selected week/day identifier.
+        * allTabNames: array of week/day names.
+        * fullProgramCache: in-memory cache for parsed program data from the sheet.
+        * charts: container for Chart.js instances keyed by chart id.
+    - Chart.js defaults are set for interaction (index mode, non-intersecting).
+
+Expected behaviors (functions referenced in HTML):
+    - toggleGraphView(): switch between workout list and graph analysis view.
+    - showHistory(): open #historyModal and populate #historyLogs from localStorage.
+    - recalculateAll(): re-run rounding/weight calculations when rounding mode or maxes change.
+    - resetChecks(): clear all per-week "checked/completed" set markers.
+    - Plate modal: clicking a weight display opens #plateModal with a visual plate stack for that weight.
+    - Workout checkboxes / check-circle UI: toggles completion and triggers progress bar updates and history saves.
+
+Persistence & history:
+    - Session history is saved into localStorage (key: 'workout_history').
+    - "Clear History" removes that localStorage key and refreshes the view.
+
+Security & operational notes:
+    - Avoid embedding API_KEY in client-side code for production; use a server-side endpoint to sign requests or proxy calls.
+    - Google Sheets APIs may require CORS and correct API key / access permissions on the spreadsheet.
+    - Add error handling around network requests (timeouts, auth errors) and graceful UI fallbacks if the sheet cannot be read.
+
+Extending the app:
+    - Add additional charts by creating new canvas elements and registering Chart.js datasets into charts[].
+    - Support additional lifts or program metadata by extending parsing logic that maps sheet rows to the app's internal program format (cached in fullProgramCache).
+    - Improve accessibility: keyboard navigation for week buttons, focus trapping inside modals, and ARIA attributes for dynamic content.
+
+Debugging tips:
+    - Inspect fullProgramCache in console to verify parsed sheet data structure.
+    - Check charts object to access Chart instances for dataset inspection/updating.
+    - Watch network requests in the browser devtools to verify sheet fetches and API key usage.
+
+License & attribution:
+    - This file includes custom UI/CSS and uses Chart.js (external library). Follow Chart.js license and any other third-party license requirements when redistributing.
+-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -12,6 +81,16 @@
             --highlight: #22c55e; --danger: #ef4444; --active-tab: #2563eb;
             --prog-low: #ef4444; --prog-mid: #eab308; --prog-high: #22c55e;
         }
+        /* Light theme (alternative) */
+        .theme-light {
+            --bg: #f8fafc; --card-bg: #ffffff; --text: #0f172a; --text-muted: #475569; --border: #e2e8f0; --input-bg: #f1f5f9;
+            --primary: #2563eb; --highlight: #16a34a; --prog-low: #ef4444; --prog-mid: #f59e0b; --prog-high: #16a34a;
+        }
+        /* Muted/solarized-like theme */
+        .theme-solar {
+            --bg: #03202b; --card-bg: #073744; --text: #e6f6f9; --text-muted: #8fb3bd; --border: #0b4a58; --input-bg: #072630;
+            --primary: #0ea5a4; --highlight: #ffd166; --prog-low: #ff6b6b; --prog-mid: #f59e0b; --prog-high: #22c55e;
+        }
 
         body { font-family: -apple-system, system-ui, sans-serif; background-color: var(--bg); color: var(--text); padding: 1rem; max-width: 1200px; margin: 0 auto; padding-bottom: 4rem; }
 
@@ -22,11 +101,17 @@
         .week-btn.active { background: var(--active-tab); color: white; border-color: var(--active-tab); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); }
 
         .navbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-        .top-nav-buttons { display: flex; gap: 10px; }
+        /* small helper to group header buttons */
+        .top-nav-buttons { display:flex; gap:8px; align-items:center; }
 
-        /* Main Layout */
-        .main-grid { display: grid; grid-template-columns: 280px 1fr; gap: 2rem; align-items: start; }
-        .sidebar-wrapper { position: sticky; top: 20px; align-self: start; }
+        /* Main Layout
+           - default: sidebar hidden -> single column
+           - when .sidebar-open is present on .main-grid, show two columns */
+        .main-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; align-items: start; transition: grid-template-columns 220ms ease; }
+        .main-grid.sidebar-open { grid-template-columns: 280px 1fr; }
+        .sidebar-wrapper { display: none; } /* hidden by default */
+        .main-grid.sidebar-open .sidebar-wrapper { display: block; position: sticky; top: 20px; align-self: start; }
+
         @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; gap: 1rem; } .sidebar-wrapper { position: static; } #statsContainer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; } }
 
         .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
@@ -44,13 +129,24 @@
             cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;
         }
         .day-header:hover { background: rgba(59, 130, 246, 0.25); }
-        .header-content { display: flex; align-items: center; gap: 10px; width: 100%; }
+    .header-content { display: flex; align-items: center; gap: 10px; }
+    /* header-right removed (no longer used) */
         .arrow { transition: transform 0.3s ease; font-size: 0.8rem; margin-right: 10px; }
         
-        .progress-wrapper { padding: 0 1rem; margin-top: 15px; margin-bottom: 5px; }
-        .progress-container { width: 100%; height: 8px; background: var(--bg); border-radius: 10px; overflow: hidden; position: relative; }
-        .progress-bar { height: 100%; width: 0%; background: var(--prog-low); transition: width 0.4s ease, background-color 0.4s ease; }
-        .progress-label { font-size: 0.7rem; color: var(--text-muted); text-align: right; margin-bottom: 4px; display: block; }
+    /* center-aligned, equal-length progress area */
+    .progress-wrapper { padding: 0 12px; margin: 0; flex: 1 1 420px; min-width: 220px; max-width: 420px; display: flex; align-items: center; gap: 8px; box-sizing: border-box; margin-left: auto; }
+        .progress-container { flex: 1 1 auto; height: 8px; background: var(--bg); border-radius: 10px; overflow: hidden; position: relative; }
+        .progress-bar { height: 100%; width: 0%; background: var(--prog-low); transition: width 0.35s ease, background-color 0.35s ease; }
+        /* inline numeric percentage, right-aligned so digits line up across rows */
+        .progress-label { font-size: 0.8rem; color: var(--text-muted); margin: 0; display: inline-block; min-width: 36px; text-align: right; }
+
+        /* Responsive: shrink progress width on small screens and stack right controls */
+        @media (max-width: 600px) {
+            /* allow progress area to shrink on smaller screens while keeping label inline */
+            .progress-wrapper { min-width: 140px; max-width: 220px; flex: 1 1 220px; }
+            .header-right { flex-direction: row; align-items: center; gap: 10px; }
+            .progress-label { margin-bottom: 0; }
+        }
         
         .check-all-btn { font-size: 0.75rem; color: var(--text-muted); text-decoration: underline; cursor: pointer; margin-left: auto; z-index: 10; padding: 5px; }
         
@@ -74,8 +170,14 @@
 
         .load-cell { font-size: 1.3rem; font-weight: 800; color: var(--highlight); cursor: pointer; text-decoration: underline dotted; }
         .actual-input { width: 65px !important; text-align: center; font-weight: bold; border: 1px solid var(--border); border-radius: 4px; background: var(--input-bg); color: white; padding: 0.3rem; }
+    /* Sidebar max input tweak */
+    .max-input { width: 90px !important; font-weight: 700; }
+        /* Preference selects styling to match inputs */
+        .pref-select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); padding: 0.4rem 0.5rem; border-radius: 6px; }
         
         .check-circle { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.1s; }
+    .check-circle:focus { outline: 3px solid rgba(34,197,94,0.25); box-shadow: 0 0 0 3px rgba(34,197,94,0.12); }
+    .actual-input:focus { outline: 2px solid rgba(59,130,246,0.2); box-shadow: 0 0 0 3px rgba(37,99,235,0.06); }
         .check-circle.checked { background: var(--highlight); border-color: var(--highlight); }
         .check-circle.checked::after { content: "✓"; color: white; font-weight: bold; }
 
@@ -86,6 +188,13 @@
         .modal-content { background: var(--card-bg); padding: 2rem; border-radius: 12px; width: 90%; max-width: 450px; }
         .plate { height: 70px; width: 18px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: black; }
         .p-25 { background: #ef4444; height: 85px; } .p-20 { background: #3b82f6; height: 80px; } .p-15 { background: #eab308; height: 75px; } .p-10 { background: #22c55e; height: 65px; } .p-5 { background: #f8fafc; height: 55px; } .p-2-5 { background: #000; color: white; height: 45px; }
+    /* smaller fractional plates for IPF (1.25, 0.5) */
+    .p-1-25 { background: #cbd5e1; height: 38px; font-size:9px; }
+    .p-0-5 { background: #94a3b8; height: 30px; font-size:9px; color:white }
+    /* clip visuals (collars) - small decorative (not used for plate rendering) */
+    .clip { width: 12px; height: 28px; background: #bdbdbd; border-radius: 2px; display: inline-block; margin: 0 6px; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.08); }
+    /* clip-plate: visually a 2.5kg plate but styled differently and always placed outermost */
+    .clip-plate { background: #6b7280; color: white; height: 45px; font-size: 10px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 800; margin-left: 6px; box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
         .bar-shaft { width: 12px; height: 95px; background: #94a3b8; border-radius: 2px; }
 
         .loader { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 1rem auto; }
@@ -99,6 +208,8 @@
     <div class="top-nav-buttons">
         <button style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleGraphView()">Graphs 📊</button>
         <button style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="showHistory()">History</button>
+    <button id="expandToggleBtn" style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleExpandToggle()">Expand All</button>
+        <button id="settingsBtn" style="background:var(--card-bg); color:white; border:1px solid var(--border); padding:0.5rem 1rem; border-radius:6px; cursor:pointer;" onclick="toggleSettings()">Settings ⚙️</button>
     </div>
 </div>
 
@@ -110,14 +221,40 @@
             <h2>Your Maxes</h2>
             <div id="statsInputs"></div>
         </div>
-        <div class="card">
-            <h2>Rounding</h2>
-            <select id="roundingMode" onchange="recalculateAll()">
-                <option value="nearest">Nearest 2.5</option>
-                <option value="up">Force Round Up</option>
-                <option value="down">Force Round Down</option>
-            </select>
-        </div>
+        <!-- Rounding moved into Preferences below -->
+            <div class="card">
+                <h2>Preferences</h2>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <!-- Units removed: app uses kg internally and displays numeric weights without unit suffix -->
+
+                    <div style="font-size:0.9rem; color:var(--text-muted)">
+                                <div style="margin-bottom:6px; font-weight:600">Rounding step</div>
+                                <select id="roundStep" class="pref-select" onchange="setRoundingStep(this.value)">
+                                    <option value="none">No rounding</option>
+                                    <option value="0.5">0.5</option>
+                                    <option value="2.5">2.5</option>
+                                    <option value="5">5</option>
+                                </select>
+                    </div>
+
+                    <div style="font-size:0.9rem; color:var(--text-muted)">
+                        <div style="margin-bottom:6px; font-weight:600">Theme</div>
+                        <select id="themeSelect" class="pref-select" onchange="setTheme(this.value)">
+                            <option value="default">Default</option>
+                            <option value="light">Light</option>
+                            <option value="solar">Solar</option>
+                        </select>
+                    </div>
+                    <div style="font-size:0.9rem; color:var(--text-muted)">
+                        <div style="margin-bottom:6px; font-weight:600">Rounding mode</div>
+                        <select id="roundingMode" class="pref-select" onchange="setRoundingMode(this.value)">
+                            <option value="nearest">Nearest (step)</option>
+                            <option value="up">Force Round Up</option>
+                            <option value="down">Force Round Down</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
         <button onclick="resetChecks()" style="width:100%; padding:0.8rem; background:transparent; border:1px solid var(--danger); color:var(--danger); border-radius:8px; cursor:pointer; font-weight:600;">Reset Week Checks</button>
     </div>
 
@@ -158,19 +295,28 @@
     </div>
 </div>
 
-<div id="plateModal" class="modal-overlay" onclick="this.style.display='none'">
-    <div class="modal-content" onclick="event.stopPropagation()">
-        <h2 id="plateWeightTitle" style="text-align:center; font-size:2.5rem; margin-bottom:0.5rem;">0kg</h2>
+<div id="plateModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="closeModal('plateModal')">
+    <div class="modal-content" onclick="event.stopPropagation()" tabindex="-1">
+    <h2 id="plateWeightTitle" style="text-align:center; font-size:2.5rem; margin-bottom:0.5rem;">0</h2>
         <div id="plateVisuals" style="display:flex; justify-content:center; align-items:center; gap:5px;"></div>
-        <button style="width:100%; margin-top:30px; padding:1rem; background:var(--primary); color:white; border:none; border-radius:8px;" onclick="document.getElementById('plateModal').style.display='none'">Close</button>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button id="clipsToggleBtn" style="flex:1; padding:0.6rem; background:var(--card-bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;" onclick="toggleClips()">Clips: Off</button>
+        </div>
+        <button id="plateCloseBtn" style="width:100%; margin-top:30px; padding:1rem; background:var(--primary); color:white; border:none; border-radius:8px;" onclick="closeModal('plateModal')">Close</button>
     </div>
 </div>
 
-<div id="historyModal" class="modal-overlay" onclick="this.style.display='none'">
-    <div class="modal-content" style="max-height:80vh; overflow-y:auto" onclick="event.stopPropagation()">
+<div id="historyModal" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="closeModal('historyModal')">
+    <div class="modal-content" style="max-height:80vh; overflow-y:auto" onclick="event.stopPropagation()" tabindex="-1">
         <h2>Session History</h2>
         <div id="historyLogs"></div>
-        <button style="width:100%; margin-top:10px; padding:0.8rem;" onclick="localStorage.removeItem('workout_history'); showHistory()">Clear History</button>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+            <button id="exportHistoryBtn" style="flex:1; padding:0.8rem; background:var(--card-bg); border:1px solid var(--border); color:var(--text);" onclick="exportHistoryCSV()">Export CSV</button>
+            <button id="importHistoryBtn" style="flex:1; padding:0.8rem; background:var(--card-bg); border:1px solid var(--border); color:var(--text);" onclick="triggerImportHistory()">Import CSV</button>
+            <button id="clearHistoryBtn" style="flex:1; padding:0.8rem; background:transparent; border:1px solid var(--danger); color:var(--danger);" onclick="localStorage.removeItem('workout_history'); showHistory()">Clear History</button>
+            <input id="importHistoryInput" type="file" accept=".csv,text/csv" style="display:none" onchange="handleHistoryFileChange(event)">
+        </div>
+        <button id="historyCloseBtn" style="width:100%; margin-top:10px; padding:0.8rem;" onclick="closeModal('historyModal')">Close</button>
     </div>
 </div>
 
@@ -188,7 +334,7 @@
         3: {10:0.922, 9.5:0.907, 9:0.892, 8.5:0.878, 8:0.864, 7.5:0.85, 7:0.837, 6.5:0.824, 6:0.811},
         4: {10:0.892, 9.5:0.878, 9:0.864, 8.5:0.85, 8:0.837, 7.5:0.824, 7:0.811, 6.5:0.799, 6:0.788},
         5: {10:0.864, 9.5:0.85, 9:0.837, 8.5:0.824, 8:0.811, 7.5:0.799, 7:0.788, 6.5:0.776, 6:0.766},
-        6: {10:0.837, 9.5:0.824, 9:0.811, 8.5:0.799, 8.5:0.799, 7.5:0.776, 7:0.766, 6.5:0.755, 6:0.744}
+        6: {10:0.837, 9.5:0.824, 9:0.811, 8.5:0.799, 7.5:0.776, 7:0.766, 6.5:0.755, 6:0.744}
     };
 
     let activeTab = "";
@@ -204,18 +350,92 @@
     window.onload = () => {
         initSidebar();
         fetchTabsAndInit();
+        // restore sidebar preference (hidden by default)
+        const open = localStorage.getItem('sidebar_open') === 'true';
+        if (open) document.querySelector('.main-grid').classList.add('sidebar-open');
     };
+
+    // Toggle settings sidebar visibility, persist preference
+    function toggleSettings() {
+        const mg = document.querySelector('.main-grid');
+        if (!mg) return;
+        const open = mg.classList.toggle('sidebar-open');
+        localStorage.setItem('sidebar_open', open ? 'true' : 'false');
+    }
 
     function initSidebar() {
         const cont = document.getElementById('statsInputs');
         ['Squat', 'Bench Press', 'Deadlift'].forEach(l => {
-            const val = localStorage.getItem('1rm_' + l) || 100;
-            cont.innerHTML += `<div style="margin-bottom:10px"><label style="font-size:0.7rem; color:var(--text-muted)">${l}</label>
-            <input type="number" value="${val}" oninput="localStorage.setItem('1rm_${l}', this.value); recalculateAll(); clearGraphCache();"></div>`;
-        });
+                const val = localStorage.getItem('1rm_' + l) || 100;
+                cont.innerHTML += `<div style="margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:8px"><div style="display:flex; flex-direction:column;">
+                    <label style="font-size:0.7rem; color:var(--text-muted); margin-bottom:6px">${l}</label>
+                    <div style="font-size:0.75rem; color:var(--text-muted)">1RM</div>
+                </div>
+                <input type="number" class="actual-input max-input" step="0.5" value="${val}" oninput="localStorage.setItem('1rm_${l}', this.value); recalculateAll(); clearGraphCache();"></div>`;
+            });
+    // initialize preferences UI state
+    const roundStep = localStorage.getItem('round_step') || '2.5';
+        const theme = localStorage.getItem('theme') || 'default';
+        const roundMode = localStorage.getItem('round_mode') || 'nearest';
+        // default clips preference (persisted so modal toggle remembers state)
+        if (localStorage.getItem('plates_clips') === null) localStorage.setItem('plates_clips', 'false');
+        setTimeout(() => {
+            const rs = document.getElementById('roundStep');
+            if (rs) rs.value = roundStep;
+            const ts = document.getElementById('themeSelect');
+            if (ts) ts.value = theme;
+            const rm = document.getElementById('roundingMode');
+            if (rm) rm.value = roundMode;
+            applyTheme(theme);
+        }, 30);
     }
 
     function clearGraphCache() { fullProgramCache = null; }
+
+    // ------------------ Preferences helpers ------------------
+    function setRoundingStep(v) { localStorage.setItem('round_step', v); recalculateAll(); }
+    function setRoundingMode(v) { localStorage.setItem('round_mode', v); recalculateAll(); }
+    function setTheme(v) { localStorage.setItem('theme', v); applyTheme(v); }
+    function applyTheme(name) {
+        document.body.classList.remove('theme-light','theme-solar');
+        if (name === 'light') document.body.classList.add('theme-light');
+        else if (name === 'solar') document.body.classList.add('theme-solar');
+    }
+
+    function formatWeight(kg) {
+        if (kg === null || kg === undefined || isNaN(kg)) return '';
+        // return numeric display only (no unit suffix)
+        // Show extra precision when needed (e.g. .75 instead of .8).
+        // Determine desired decimals from the configured rounding step and the value itself.
+        const rawStep = localStorage.getItem('round_step') || '0.5';
+        // count decimals in step (e.g. 1.25 -> 2 decimals)
+        let stepDecimals = 0;
+        if (rawStep === 'none') {
+            stepDecimals = 3; // allow finer display when no rounding selected
+        } else {
+            try {
+                const s = String(rawStep);
+                if (s.indexOf('.') >= 0) stepDecimals = s.split('.')[1].length;
+            } catch (e) { stepDecimals = 0; }
+        }
+
+        // check whether 2-decimal precision materially differs from 1-decimal precision
+        const rounded1 = Math.round(kg * 10) / 10;
+        const rounded2 = Math.round(kg * 100) / 100;
+
+        let decimals = 0;
+        if (Math.abs(kg - Math.round(kg)) < 1e-9) decimals = 0; // integer
+        else if (Math.abs(rounded2 - rounded1) > 1e-9) decimals = Math.max(2, stepDecimals);
+        else decimals = Math.max(1, stepDecimals);
+
+        // cap to sensible max (avoid weird floating artifacts)
+        decimals = Math.min(decimals, 3);
+
+        let out = kg.toFixed(decimals);
+        // trim unnecessary trailing zeros and optional trailing dot
+        out = out.replace(/(?:\.0+|(?<=\.\d+)0+)$/, '').replace(/\.$/, '');
+        return out;
+    }
 
     async function fetchTabsAndInit() {
         if (!API_KEY || API_KEY.includes("PASTE")) {
@@ -287,18 +507,21 @@
 
             if (name && (setsStr === "" || isNaN(setsNum))) {
                 if (currentSection) display.appendChild(currentSection);
-                currentSection = document.createElement('div'); 
-                currentSection.className = 'workout-section collapsed'; 
+                currentSection = document.createElement('div');
+                currentSection.className = 'workout-section collapsed';
                 currentSection.innerHTML = `
                     <div class="day-header">
                         <div class="header-content" onclick="toggleSection(this)">
                             <span class="arrow">▼</span>
                             <span>${name}</span>
                         </div>
-                        <span class="check-all-btn" onclick="toggleAllChecks(this)">Check All</span>
+                        <div class="progress-wrapper">
+                            <div class="progress-container"><div class="progress-bar"></div></div>
+                            <span class="progress-label">0%</span>
+                        </div>
+                        <span class="check-all-btn" role="button" tabindex="0" onclick="toggleAllChecks(this)">Check All</span>
                     </div>
                     <div class="content">
-                        <div class="progress-wrapper"><span class="progress-label">0%</span><div class="progress-container"><div class="progress-bar"></div></div></div>
                         <table><thead><tr><th style="width:30px"></th><th>Exercise</th><th>Target</th><th>Act.</th></tr></thead><tbody></tbody></table>
                         <button class="btn-finish" onclick="finishWorkout('${name}', this)">Finish Workout ✅</button>
                     </div>`;
@@ -319,15 +542,20 @@
                     tbody.appendChild(createRow(name, 1, parseInt(v(2)), parseFloat(rpeStr), label, `${id}_r${i}`, dec, css));
                 }
             } else if (rpeStr.includes('%') || rpeStr.startsWith('-')) {
-                const drop = Math.abs(parseFloat(rpeStr.replace(/[^0-9.-]/g, ''))) || 10;
+                // parse numeric portion, normalize fractional values (0.075 -> 7.5), round for display
+                let drop = Math.abs(parseFloat(rpeStr.replace(/[^0-9.-]/g, ''))) || 10;
+                if (drop > 0 && drop <= 1) drop = drop * 100; // handle fractional percent values
+                drop = Math.round(drop * 10) / 10; // one decimal precision
                 tbody.appendChild(createBackoffRow(name, setsStr, parseInt(v(2)), drop, id));
             } else {
                 tbody.appendChild(createRow(name, setsStr, parseInt(v(2)), parseFloat(rpeStr), note, id));
             }
         });
-        if (currentSection) display.appendChild(currentSection);
-        recalculateAll();
-        document.querySelectorAll('.workout-section').forEach(sec => updateSectionProgress(sec));
+    if (currentSection) display.appendChild(currentSection);
+    recalculateAll();
+    document.querySelectorAll('.workout-section').forEach(sec => updateSectionProgress(sec));
+    // wire inputs and keyboard handlers once rows are present
+    setTimeout(() => { attachInputHandlers(); }, 50);
     }
 
     function createRow(name, sets, reps, rpe, note, id, dec = 0, css = "") {
@@ -336,10 +564,10 @@
         if (checks[id]) tr.classList.add('completed');
         const pct = (RPE_CHART[reps] && RPE_CHART[reps][rpe]) ? RPE_CHART[reps][rpe] : 0;
         tr.innerHTML = `
-            <td><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" onclick="toggleCheck(this)"></div></td>
+            <td><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" tabindex="0" onclick="toggleCheck(this)" onkeydown="if(event.key===' '||event.key==='Enter'){ event.preventDefault(); toggleCheck(this);}"></div></td>
             <td><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">${note}</div></td>
             <td><div style="font-size:0.8rem">${sets}x${reps} @${rpe || 'N/A'}</div><div class="load-cell" data-ex="${name}" data-pct="${pct}" data-dec="${dec}" onclick="showPlates(this.innerText)">-</div></td>
-            <td><input type="number" class="actual-input" placeholder="kg"></td>
+            <td><input type="number" class="actual-input" data-id="${id}" placeholder=""></td>
         `;
         return tr;
     }
@@ -348,11 +576,13 @@
         const tr = document.createElement('tr'); tr.className = 'backoff-row';
         const checks = JSON.parse(localStorage.getItem('checks') || '{}');
         if (checks[id]) tr.classList.add('completed');
+        // display-friendly percent (remove trailing .0)
+        const dropDisp = (Math.round(drop * 10) / 10).toString().replace(/\.0$/, '');
         tr.innerHTML = `
-            <td><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" onclick="toggleCheck(this)"></div></td>
-            <td><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">Backoff (-${drop}%)</div></td>
+            <td><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" tabindex="0" onclick="toggleCheck(this)" onkeydown="if(event.key===' '||event.key==='Enter'){ event.preventDefault(); toggleCheck(this);}"></div></td>
+            <td><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">Backoff (-${dropDisp}%)</div></td>
             <td><div style="font-size:0.8rem">${sets}x${reps}</div><div class="load-cell backoff-calc" data-ex="${name}" data-drop="${drop}" onclick="showPlates(this.innerText)">-</div></td>
-            <td><input type="number" class="actual-input" placeholder="kg"></td>
+            <td><input type="number" class="actual-input" data-id="${id}" placeholder=""></td>
         `;
         return tr;
     }
@@ -365,13 +595,19 @@
             if (ex.includes('squat')) lift = 'Squat'; 
             else if (ex.includes('bench')) lift = 'Bench Press'; 
             else if (ex.includes('deadlift')) lift = 'Deadlift';
-            if (lift && pct > 0) {
+                if (lift && pct > 0) {
                 const max = parseFloat(localStorage.getItem('1rm_' + lift));
                 let weight = (max * pct) - dec;
-                if (mode === 'up') weight = Math.ceil(weight / 2.5) * 2.5;
-                else if (mode === 'down') weight = Math.floor(weight / 2.5) * 2.5;
-                else weight = Math.round(weight / 2.5) * 2.5;
-                cell.innerText = weight + "kg";
+                const stepStr = localStorage.getItem('round_step') || '2.5';
+                if (stepStr === 'none') {
+                    // no rounding requested - keep precise value
+                } else {
+                    const step = parseFloat(stepStr) || 2.5;
+                    if (mode === 'up') weight = Math.ceil(weight / step) * step;
+                    else if (mode === 'down') weight = Math.floor(weight / step) * step;
+                    else weight = Math.round(weight / step) * step;
+                }
+                cell.innerText = formatWeight(weight);
                 cell.closest('tr').setAttribute('data-last-wt', weight);
             }
         });
@@ -382,8 +618,14 @@
             const base = prev ? parseFloat(prev.getAttribute('data-last-wt')) : 0;
             if (base) {
                 let weight = base * (1 - parseFloat(cell.dataset.drop)/100);
-                weight = Math.round(weight / 2.5) * 2.5;
-                cell.innerText = weight + "kg";
+                const stepStr = localStorage.getItem('round_step') || '2.5';
+                if (stepStr === 'none') {
+                    // keep precise backoff value
+                } else {
+                    const step = parseFloat(stepStr) || 2.5;
+                    weight = Math.round(weight / step) * step;
+                }
+                cell.innerText = formatWeight(weight);
             }
         });
     }
@@ -397,7 +639,7 @@
         const txt = section.querySelector('.progress-label');
         if(bar && txt) {
             bar.style.width = percentage + "%";
-            txt.innerText = percentage + "% Completed";
+            txt.innerText = percentage + "%";
             if (percentage <= 30) bar.style.backgroundColor = "var(--prog-low)";
             else if (percentage <= 70) bar.style.backgroundColor = "var(--prog-mid)";
             else bar.style.backgroundColor = "var(--prog-high)";
@@ -420,26 +662,57 @@
         updateSectionProgress(section);
     }
     function showPlates(txt) {
-        const wt = parseFloat(txt); if (isNaN(wt)) return;
-        document.getElementById('plateWeightTitle').innerText = wt + "kg";
-        const vis = document.getElementById('plateVisuals'); vis.innerHTML = '<div class="bar-shaft"></div>';
-        let side = (wt - 20) / 2;
-        const plates = [{w:25,c:'p-25'},{w:20,c:'p-20'},{w:15,c:'p-15'},{w:10,c:'p-10'},{w:5,c:'p-5'},{w:2.5,c:'p-2-5'}];
-        plates.forEach(p => { while(side >= p.w) { vis.innerHTML += `<div class="plate ${p.c}">${p.w}</div>`; side -= p.w; side = Math.round(side*100)/100; }});
+        const wt = parseFloat(txt);
+        if (isNaN(wt)) return;
+        // treat bar as 20kg and optionally account for clips (assumed 0.5kg total when enabled)
+        const barWeight = 20;
+    const clipsOn = localStorage.getItem('plates_clips') === 'true';
+        // display numeric title without unit suffix
+        document.getElementById('plateWeightTitle').innerText = formatWeight(wt);
+        const vis = document.getElementById('plateVisuals');
+    // build visuals: bar shaft (clip rendered as clip-plate instead)
+    vis.innerHTML = '';
+    vis.innerHTML += '<div class="bar-shaft"></div>';
+
+        // compute per-side plate mass (remaining after bar and clips)
+        const clipPerSide = clipsOn ? 2.5 : 0; // each clip treated like a 2.5kg plate
+        let side = (wt - barWeight - (clipPerSide * 2)) / 2;
+        // supported IPF plates (kg) including fractional small plates
+        const plates = [{w:25,c:'p-25'},{w:20,c:'p-20'},{w:15,c:'p-15'},{w:10,c:'p-10'},{w:5,c:'p-5'},{w:2.5,c:'p-2-5'},{w:1.25,c:'p-1-25'},{w:0.5,c:'p-0-5'}];
+        // append plates (largest to smallest) while side allows
+        plates.forEach(p => { while (side + 0.0001 >= p.w) { vis.innerHTML += `<div class="plate ${p.c}">${p.w}</div>`; side -= p.w; side = Math.round(side*100)/100; }});
+
+        // if clips enabled, render a special clip-plate on the outermost/right side
+        if (clipsOn) {
+            vis.innerHTML += `<div class="plate clip-plate">2.5</div>`;
+        }
+
+        // update clips button label when modal is rendered
+        const clipBtn = document.getElementById('clipsToggleBtn');
+        if (clipBtn) clipBtn.innerText = clipsOn ? 'Clips: On' : 'Clips: Off';
         document.getElementById('plateModal').style.display = 'flex';
+    }
+
+    function toggleClips() {
+        const cur = localStorage.getItem('plates_clips') === 'true';
+        localStorage.setItem('plates_clips', cur ? 'false' : 'true');
+        // re-render modal visuals for the currently displayed weight
+        const title = document.getElementById('plateWeightTitle');
+        const wt = parseFloat(title ? title.innerText : 0);
+        showPlates(wt);
     }
     function resetChecks() { if (confirm("Clear checks?")) { localStorage.removeItem('checks'); location.reload(); }}
     function showHistory() {
-        const logs = JSON.parse(localStorage.getItem('workout_history') || '[]');
-        document.getElementById('historyLogs').innerHTML = logs.length ? logs.map(l => `<div class="card"><h4>${l.date} - ${l.day}</h4>${l.sets.map(s => `<div>${s.ex}: A:${s.actual}kg / T:${s.target}kg</div>`).join('')}</div>`).join('') : "Empty";
+    const logs = JSON.parse(localStorage.getItem('workout_history') || '[]');
+    document.getElementById('historyLogs').innerHTML = logs.length ? logs.map(l => `<div class="card"><h4>${l.date} - ${l.day}</h4>${l.sets.map(s => `<div>${s.ex}: A:${s.actual} / T:${s.target}</div>`).join('')}</div>`).join('') : "Empty";
         document.getElementById('historyModal').style.display = 'flex';
     }
     function finishWorkout(day, btn) {
         const sets = [];
         btn.closest('.workout-section').querySelectorAll('tr').forEach(tr => {
-            if (tr.querySelector('.check-circle.checked')) {
+                if (tr.querySelector('.check-circle.checked')) {
                 const exName = tr.cells[1].innerText.split('\n')[0];
-                const targetText = tr.querySelector('.load-cell').innerText.replace('kg','');
+                const targetText = tr.querySelector('.load-cell').innerText;
                 const actualVal = tr.querySelector('.actual-input').value;
                 sets.push({ ex: exName, target: targetText, actual: actualVal || targetText });
             }
@@ -450,6 +723,267 @@
         localStorage.setItem('workout_history', JSON.stringify(hist));
         alert("Workout Saved!");
     }
+
+    // =============================
+    // Quick-win helpers: autosave, CSV export, keyboard shortcuts, expand/collapse, modal focus
+    // =============================
+    function attachInputHandlers() {
+        // restore any saved inputs for this tab
+        restoreAutosave();
+
+        // delegate input events
+        document.querySelectorAll('.actual-input').forEach(inp => {
+            inp.removeEventListener('input', saveActualInput);
+            inp.addEventListener('input', saveActualInput);
+        });
+
+        // ensure check-circles are keyboard friendly (already have tabindex) and add focus styling
+        document.querySelectorAll('.check-circle').forEach(c => {
+            c.addEventListener('keydown', (e) => {
+                if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleCheck(c); }
+            });
+        });
+        // make Check All controls keyboard-activatable
+        document.querySelectorAll('.check-all-btn').forEach(b => {
+            b.addEventListener('keydown', (e) => {
+                if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleAllChecks(b); }
+            });
+        });
+        // update expand toggle button label to reflect current state
+        updateExpandToggleText();
+    }
+
+    function saveActualInput(e) {
+        const inp = e.target;
+        const id = inp.dataset.id || (inp.closest('tr') && inp.closest('tr').getAttribute('data-id'));
+        if (!id) return;
+        const key = 'autosave_' + activeTab;
+        const obj = JSON.parse(localStorage.getItem(key) || '{}');
+        obj[id] = inp.value;
+        localStorage.setItem(key, JSON.stringify(obj));
+    }
+
+    function restoreAutosave() {
+        const key = 'autosave_' + activeTab;
+        const obj = JSON.parse(localStorage.getItem(key) || '{}');
+        if (!obj) return;
+        document.querySelectorAll('.actual-input').forEach(inp => {
+            const id = inp.dataset.id;
+            if (id && obj[id] !== undefined) inp.value = obj[id];
+        });
+    }
+
+    function exportHistoryCSV() {
+        const hist = JSON.parse(localStorage.getItem('workout_history') || '[]');
+        if (!hist.length) return alert('No history to export');
+        const lines = [];
+        lines.push(['date','day','exercise','target','actual'].join(','));
+        hist.forEach(h => {
+            h.sets.forEach(s => {
+                const row = [h.date, '"' + h.day.replace(/"/g,'""') + '"', '"' + String(s.ex).replace(/"/g,'""') + '"', String(s.target), String(s.actual)];
+                lines.push(row.join(','));
+            });
+        });
+        const csv = lines.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'workout_history.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    // ---------- CSV IMPORT FOR HISTORY ----------
+    function triggerImportHistory() {
+        const inp = document.getElementById('importHistoryInput');
+        if (!inp) return alert('Import input not found');
+        inp.value = null; // reset so same file can be reselected
+        inp.click();
+    }
+
+    function handleHistoryFileChange(e) {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const text = ev.target.result;
+                importHistoryCSV(text);
+            } catch (err) {
+                alert('Failed to import CSV: ' + err.message);
+            }
+        };
+        reader.readAsText(f);
+    }
+
+    function parseCSV(text) {
+        const rows = [];
+        let cur = '';
+        let row = [];
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (inQuotes) {
+                if (ch === '"') {
+                    if (text[i+1] === '"') { cur += '"'; i++; }
+                    else { inQuotes = false; }
+                } else {
+                    cur += ch;
+                }
+            } else {
+                if (ch === '"') { inQuotes = true; }
+                else if (ch === ',') { row.push(cur); cur = ''; }
+                else if (ch === '\r') { /* ignore */ }
+                else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+                else { cur += ch; }
+            }
+        }
+        // trailing
+        if (inQuotes) throw new Error('Malformed CSV: unmatched quote');
+        if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+        return rows;
+    }
+
+    function importHistoryCSV(text) {
+        const rows = parseCSV(text).map(r => r.map(c => c.trim()));
+        if (!rows.length) return alert('CSV empty');
+
+        // detect header
+        const header = rows[0].map(h => h.toLowerCase());
+        let dataRows = rows;
+        let hasHeader = false;
+        if (header.includes('date') || header.includes('exercise') || header.includes('actual')) {
+            hasHeader = true;
+            dataRows = rows.slice(1);
+        }
+
+        // determine column indexes (fall back to expected order)
+        const cols = hasHeader ? header : ['date','day','exercise','target','actual'];
+        const idx = {
+            date: cols.indexOf('date'),
+            day: cols.indexOf('day'),
+            ex: cols.indexOf('exercise'),
+            target: cols.indexOf('target'),
+            actual: cols.indexOf('actual')
+        };
+        // if header didn't include 'day' but has 5 columns in order, assume positions
+        if (!hasHeader && dataRows[0] && dataRows[0].length >= 5) {
+            idx.date = 0; idx.day = 1; idx.ex = 2; idx.target = 3; idx.actual = 4;
+        }
+
+        const sessionsMap = {};
+        let importedCount = 0;
+        dataRows.forEach(r => {
+            if (!r || r.length === 0) return;
+            const date = (r[idx.date] || '').trim();
+            const day = (idx.day >= 0 ? (r[idx.day] || '') : '') .trim();
+            const ex = (r[idx.ex] || '').trim();
+            const target = (idx.target >= 0 ? (r[idx.target] || '') : '').trim();
+            const actual = (idx.actual >= 0 ? (r[idx.actual] || '') : '').trim();
+            if (!ex) return; // skip empty exercise rows
+            const key = (date || '') + '|' + (day || '');
+            if (!sessionsMap[key]) sessionsMap[key] = { date: date || new Date().toLocaleDateString(), day: day || '', sets: [] };
+            sessionsMap[key].sets.push({ ex: ex, target: target, actual: actual });
+            importedCount++;
+        });
+
+        const importedSessions = Object.values(sessionsMap);
+        if (!importedSessions.length) return alert('No valid rows found in CSV');
+
+        const existing = JSON.parse(localStorage.getItem('workout_history') || '[]');
+        const append = confirm(`Imported ${importedCount} rows across ${importedSessions.length} sessions. Click OK to append to existing history, Cancel to replace it.`);
+        let out = [];
+        if (append) out = importedSessions.concat(existing);
+        else out = importedSessions;
+
+        localStorage.setItem('workout_history', JSON.stringify(out));
+        alert('Import complete: ' + importedSessions.length + ' sessions');
+        // refresh history view
+        showHistory();
+    }
+
+    function expandAllSections() { document.querySelectorAll('.workout-section').forEach(s => s.classList.remove('collapsed')); }
+    function collapseAllSections() { document.querySelectorAll('.workout-section').forEach(s => s.classList.add('collapsed')); }
+
+    function toggleExpandToggle() {
+        const anyCollapsed = document.querySelectorAll('.workout-section.collapsed').length > 0;
+        if (anyCollapsed) {
+            expandAllSections();
+            document.getElementById('expandToggleBtn').innerText = 'Collapse All';
+        } else {
+            collapseAllSections();
+            document.getElementById('expandToggleBtn').innerText = 'Expand All';
+        }
+    }
+
+    function updateExpandToggleText() {
+        const btn = document.getElementById('expandToggleBtn');
+        if (!btn) return;
+        const anyCollapsed = document.querySelectorAll('.workout-section.collapsed').length > 0;
+        btn.innerText = anyCollapsed ? 'Expand All' : 'Collapse All';
+    }
+
+    function openModal(id) {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.style.display = 'flex';
+        m.setAttribute('aria-hidden', 'false');
+        const content = m.querySelector('.modal-content');
+        if (content) content.focus();
+        trapModalFocus(m);
+    }
+
+    function closeModal(id) {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.style.display = 'none';
+        m.setAttribute('aria-hidden', 'true');
+        untrapModalFocus(m);
+    }
+
+    let _modalKeyHandler = null;
+    function trapModalFocus(modal) {
+        _modalKeyHandler = function(e) {
+            if (e.key === 'Escape') { closeModal(modal.id); }
+            if (e.key === 'Tab') {
+                const focusables = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                if (!focusables.length) { e.preventDefault(); return; }
+                const first = focusables[0];
+                const last = focusables[focusables.length-1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        };
+        document.addEventListener('keydown', _modalKeyHandler);
+    }
+
+    function untrapModalFocus(modal) { if (_modalKeyHandler) document.removeEventListener('keydown', _modalKeyHandler); _modalKeyHandler = null; }
+
+    // Wire showPlates/showHistory to open modals with new helpers
+    const _origShowPlates = showPlates;
+    showPlates = function(txt) { _origShowPlates(txt); openModal('plateModal'); };
+
+    const _origShowHistory = showHistory;
+    showHistory = function() { _origShowHistory(); openModal('historyModal'); };
+
+    // Global shortcuts (g = graphs toggle, h = history, / = focus search (if exists))
+    document.addEventListener('keydown', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) return;
+        if (e.key === 'g') { e.preventDefault(); toggleGraphView(); }
+        if (e.key === 'h') { e.preventDefault(); showHistory(); }
+    });
+
+    // After rendering new tab content, call attachInputHandlers
+    const _origLoadTab = loadTab;
+    loadTab = function(tabName) {
+        _origLoadTab(tabName);
+        // when sheet script inserts rows it will call processSheet -> recalculateAll -> updateSectionProgress
+        // schedule a small delay to attach inputs after rows are built
+        setTimeout(() => { attachInputHandlers(); }, 600);
+    };
 
     // ==========================================
     // 📊 NEW COMBO GRAPH LOGIC (3 CHARTS)
@@ -528,10 +1062,12 @@
                     }
                 });
 
+                const stepStr = localStorage.getItem('round_step') || '0.5';
+                const roundStep = parseFloat(stepStr);
                 results[tabName] = { 
-                    s: maxS > 0 ? Math.round(maxS/2.5)*2.5 : 0, 
-                    b: maxB > 0 ? Math.round(maxB/2.5)*2.5 : 0, 
-                    d: maxD > 0 ? Math.round(maxD/2.5)*2.5 : 0,
+                    s: maxS > 0 ? (stepStr === 'none' ? maxS : Math.round(maxS/roundStep)*roundStep) : 0, 
+                    b: maxB > 0 ? (stepStr === 'none' ? maxB : Math.round(maxB/roundStep)*roundStep) : 0, 
+                    d: maxD > 0 ? (stepStr === 'none' ? maxD : Math.round(maxD/roundStep)*roundStep) : 0,
                     volS: volS > 0 ? Math.round(volS) : 0,
                     volB: volB > 0 ? Math.round(volB) : 0,
                     volD: volD > 0 ? Math.round(volD) : 0
@@ -603,8 +1139,10 @@
                             data: volData, 
                             type: 'bar',
                             yAxisID: 'y1', 
-                            backgroundColor: color, 
-                            opacity: 0.3,
+                            // Use same color as the lines for the bar (and match border)
+                            backgroundColor: color,
+                            borderColor: color,
+                            borderWidth: 1,
                             barPercentage: 0.5
                         },
                         { 

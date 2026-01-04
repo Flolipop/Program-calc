@@ -918,6 +918,7 @@ License & attribution:
             const setsNum = parseInt(setsStr);
             const repsNum = parseInt(repsRaw);
             const noteLower = note.toLowerCase();
+            const noteDropMatch = noteLower.match(/-\s*(\d+(?:\.\d+)?)/);
             const isTimeRow = noteLower.includes('timed') || noteLower.includes('sec') || rpeStr.toUpperCase() === 'SEC';
 
             if (name.toLowerCase() === 'exercise') return;
@@ -971,6 +972,13 @@ License & attribution:
                 if (drop > 0 && drop <= 1) drop = drop * 100; // handle fractional percent values
                 drop = Math.round(drop * 10) / 10; // one decimal precision
                 tbody.appendChild(createBackoffRow(name, setsStr, repsNum, drop, id));
+            } else if (noteDropMatch) {
+                const dropKg = parseFloat(noteDropMatch[1]);
+                if (!isNaN(dropKg) && dropKg > 0) {
+                    tbody.appendChild(createBackoffRow(name, setsStr, repsNum, dropKg, id, { absolute: true }));
+                } else {
+                    tbody.appendChild(createRow(name, setsStr, repsNum, parseFloat(rpeStr), note, id));
+                }
             } else {
                 tbody.appendChild(createRow(name, setsStr, repsNum, parseFloat(rpeStr), note, id));
             }
@@ -987,10 +995,12 @@ License & attribution:
         const checks = JSON.parse(localStorage.getItem('checks') || '{}');
         if (checks[id]) tr.classList.add('completed');
         const pct = (RPE_CHART[reps] && RPE_CHART[reps][rpe]) ? RPE_CHART[reps][rpe] : 0;
+        const noteText = (typeof note === 'string') ? note : '';
+        const repeatAttr = noteText.toLowerCase().includes('repeat') ? ' data-repeat="true"' : '';
         tr.innerHTML = `
             <td class="cell-done" data-label="Done"><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" tabindex="0" onclick="toggleCheck(this)" onkeydown="if(event.key===' '||event.key==='Enter'){ event.preventDefault(); toggleCheck(this);}"></div></td>
-            <td class="cell-exercise" data-label="Exercise"><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">${note}</div></td>
-            <td class="cell-target target-cell" data-label="Target"><div class="target-label">${sets}x${reps} @${rpe || 'N/A'}</div><div class="load-cell" data-ex="${name}" data-pct="${pct}" data-dec="${dec}" onclick="showPlates(this.innerText)">-</div></td>
+            <td class="cell-exercise" data-label="Exercise"><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">${noteText}</div></td>
+            <td class="cell-target target-cell" data-label="Target"><div class="target-label">${sets}x${reps} @${rpe || 'N/A'}</div><div class="load-cell" data-ex="${name}" data-pct="${pct}" data-dec="${dec}"${repeatAttr} onclick="showPlates(this.innerText)">-</div></td>
             <td class="cell-actual" data-label="Actual" style="display:flex; flex-direction:column; gap:6px;">
                 <input type="number" class="actual-input" data-id="${id}" placeholder="">
                 <div class="strength-field">
@@ -1049,16 +1059,19 @@ License & attribution:
         return tr;
     }
 
-    function createBackoffRow(name, sets, reps, drop, id) {
+    function createBackoffRow(name, sets, reps, drop, id, options = {}) {
+        const { absolute = false } = options;
         const tr = document.createElement('tr'); tr.className = 'backoff-row';
         const checks = JSON.parse(localStorage.getItem('checks') || '{}');
         if (checks[id]) tr.classList.add('completed');
-        // display-friendly percent (remove trailing .0)
-        const dropDisp = (Math.round(drop * 10) / 10).toString().replace(/\.0$/, '');
+        const dropDisp = absolute ? (Math.round(drop * 100) / 100).toString().replace(/\.0+$/, '') : (Math.round(drop * 10) / 10).toString().replace(/\.0$/, '');
+        const dropSuffix = absolute ? 'kg' : '%';
+        const desc = `Backoff (-${dropDisp}${dropSuffix})`;
+        const dropAttrs = `data-drop="${drop}" data-drop-type="${absolute ? 'absolute' : 'percent'}"`;
         tr.innerHTML = `
             <td class="cell-done" data-label="Done"><div class="check-circle ${checks[id]?'checked':''}" data-id="${id}" tabindex="0" onclick="toggleCheck(this)" onkeydown="if(event.key===' '||event.key==='Enter'){ event.preventDefault(); toggleCheck(this);}"></div></td>
-            <td class="cell-exercise" data-label="Exercise"><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">Backoff (-${dropDisp}%)</div></td>
-            <td class="cell-target target-cell" data-label="Target"><div class="target-label" style="font-size:0.8rem">${sets}x${reps}</div><div class="load-cell backoff-calc" data-ex="${name}" data-drop="${drop}" onclick="showPlates(this.innerText)">-</div></td>
+            <td class="cell-exercise" data-label="Exercise"><div style="font-weight:bold">${name}</div><div style="font-size:0.75rem; color:var(--text-muted)">${desc}</div></td>
+            <td class="cell-target target-cell" data-label="Target"><div class="target-label" style="font-size:0.8rem">${sets}x${reps}</div><div class="load-cell backoff-calc" data-ex="${name}" ${dropAttrs} onclick="showPlates(this.innerText)">-</div></td>
             <td class="cell-actual" data-label="Actual" style="display:flex; flex-direction:column; gap:6px;">
                 <input type="number" class="actual-input" data-id="${id}" placeholder="">
                 <div class="strength-field">
@@ -1077,46 +1090,78 @@ License & attribution:
         return tr;
     }
 
+    function findPreviousWeightRow(tr) {
+        if (!tr) return NaN;
+        let prev = tr.previousElementSibling;
+        while (prev) {
+            const val = parseFloat(prev.getAttribute('data-last-wt'));
+            if (!isNaN(val)) return val;
+            prev = prev.previousElementSibling;
+        }
+        return NaN;
+    }
+
     function recalculateAll() {
         const mode = document.getElementById('roundingMode').value;
+        const stepSetting = localStorage.getItem('round_step') || '2.5';
+        const roundingDisabled = stepSetting === 'none';
+        const roundStep = roundingDisabled ? null : (parseFloat(stepSetting) || 2.5);
+
+        const applyPrimaryRounding = (value) => {
+            if (roundingDisabled || !isFinite(value)) return value;
+            if (mode === 'up') return Math.ceil(value / roundStep) * roundStep;
+            if (mode === 'down') return Math.floor(value / roundStep) * roundStep;
+            return Math.round(value / roundStep) * roundStep;
+        };
+
         document.querySelectorAll('.load-cell:not(.backoff-calc)').forEach(cell => {
-            const ex = cell.dataset.ex.toLowerCase(); const pct = parseFloat(cell.dataset.pct); const dec = parseFloat(cell.dataset.dec);
+            const tr = cell.closest('tr');
+            const ex = cell.dataset.ex.toLowerCase();
+            const pct = parseFloat(cell.dataset.pct);
+            const dec = parseFloat(cell.dataset.dec);
+            const repeatPrev = cell.dataset.repeat === 'true';
+            const prevWeight = findPreviousWeightRow(tr);
             let lift = null;
             if (ex.includes('squat')) lift = 'Squat'; 
             else if (ex.includes('bench')) lift = 'Bench Press'; 
             else if (ex.includes('deadlift')) lift = 'Deadlift';
-                if (lift && pct > 0) {
+
+            let weight = NaN;
+            if (repeatPrev && !isNaN(prevWeight)) {
+                weight = prevWeight;
+            } else if (lift && pct > 0) {
                 const max = parseFloat(localStorage.getItem('1rm_' + lift));
-                let weight = (max * pct) - dec;
-                const stepStr = localStorage.getItem('round_step') || '2.5';
-                if (stepStr === 'none') {
-                    // no rounding requested - keep precise value
-                } else {
-                    const step = parseFloat(stepStr) || 2.5;
-                    if (mode === 'up') weight = Math.ceil(weight / step) * step;
-                    else if (mode === 'down') weight = Math.floor(weight / step) * step;
-                    else weight = Math.round(weight / step) * step;
-                }
+                if (!isNaN(max)) weight = (max * pct) - dec;
+            }
+
+            if (!isNaN(weight)) {
+                weight = Math.max(0, applyPrimaryRounding(weight));
                 cell.innerText = formatWeight(weight);
-                cell.closest('tr').setAttribute('data-last-wt', weight);
+                tr.setAttribute('data-last-wt', weight);
+            } else {
+                cell.innerText = '-';
+                tr.removeAttribute('data-last-wt');
             }
         });
         document.querySelectorAll('.backoff-calc').forEach(cell => {
             const tr = cell.closest('tr');
-            let prev = tr.previousElementSibling;
-            while(prev && prev.classList.contains('backoff-row')) prev = prev.previousElementSibling;
-            const base = prev ? parseFloat(prev.getAttribute('data-last-wt')) : 0;
-            if (base) {
-                let weight = base * (1 - parseFloat(cell.dataset.drop)/100);
-                const stepStr = localStorage.getItem('round_step') || '2.5';
-                if (stepStr === 'none') {
-                    // keep precise backoff value
-                } else {
-                    const step = parseFloat(stepStr) || 2.5;
-                    weight = Math.round(weight / step) * step;
-                }
-                cell.innerText = formatWeight(weight);
+            const base = findPreviousWeightRow(tr);
+            const dropType = cell.dataset.dropType || 'percent';
+            const dropValue = parseFloat(cell.dataset.drop);
+            if (!base || isNaN(dropValue)) {
+                cell.innerText = '-';
+                tr.removeAttribute('data-last-wt');
+                return;
             }
+            let weight = base;
+            if (dropType === 'absolute') {
+                weight = base - dropValue;
+            } else {
+                weight = base * (1 - dropValue / 100);
+            }
+            weight = Math.max(0, applyPrimaryRounding(weight));
+            cell.innerText = formatWeight(weight);
+            tr.setAttribute('data-last-wt', weight);
         });
     }
 
